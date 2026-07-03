@@ -59,9 +59,10 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
+      data-scroll-behavior="smooth"
       className={`${inter.variable} ${jetbrainsMono.variable}`}
     >
-      <body className="min-h-svh bg-background font-sans antialiased">
+      <body className="min-h-svh bg-background font-sans antialiased" suppressHydrationWarning>
         <ThemeProvider
           attribute="class"
           defaultTheme="dark"
