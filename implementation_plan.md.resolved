@@ -1,0 +1,541 @@
+# FinanceOS — Master Implementation Plan
+
+> **Personal Finance Operating System**
+> Replace multiple finance apps with one unified, SaaS-grade platform.
+
+---
+
+## Table of Contents
+
+1. [Architecture Overview](#architecture-overview)
+2. [System Design](#system-design)
+3. [Phase Breakdown](#phase-breakdown)
+4. [Phase 1 — Foundation & Infrastructure (CURRENT)](#phase-1--foundation--infrastructure)
+5. [Database Schema Strategy](#database-schema-strategy)
+6. [Key Design Decisions](#key-design-decisions)
+
+---
+
+## Architecture Overview
+
+```mermaid
+graph TB
+    subgraph Client["Client Layer (Next.js + PWA)"]
+        PWA["PWA Shell<br/>Service Worker + Manifest"]
+        APP["Next.js App Router"]
+        UI["shadcn/ui + Tailwind CSS"]
+        STATE["React Query + Zustand"]
+        FORMS["React Hook Form + Zod"]
+    end
+
+    subgraph Edge["Edge Layer"]
+        MW["Next.js Middleware<br/>Auth + Route Protection"]
+        EF["Supabase Edge Functions<br/>Complex Business Logic"]
+    end
+
+    subgraph Backend["Backend Layer (Supabase)"]
+        AUTH["Supabase Auth<br/>Email/OAuth"]
+        DB["PostgreSQL<br/>+ Row Level Security"]
+        STORAGE["Supabase Storage<br/>Attachments/Receipts"]
+        RT["Realtime<br/>Live Updates"]
+    end
+
+    PWA --> APP
+    APP --> UI
+    APP --> STATE
+    APP --> FORMS
+    APP --> MW
+    MW --> AUTH
+    STATE --> DB
+    STATE --> RT
+    EF --> DB
+    FORMS --> EF
+    APP --> STORAGE
+```
+
+### Layered Architecture
+
+| Layer | Technology | Responsibility |
+|-------|-----------|----------------|
+| **Presentation** | Next.js App Router, React, Tailwind, shadcn/ui | UI rendering, routing, forms |
+| **State Management** | TanStack Query + Zustand | Server state caching, client state |
+| **Validation** | Zod + React Hook Form | Client & server-side validation |
+| **API** | Supabase Client SDK + Edge Functions | Data access, business logic |
+| **Auth** | Supabase Auth + Next.js Middleware | Authentication, session management |
+| **Database** | PostgreSQL + RLS | Data persistence, security |
+| **Storage** | Supabase Storage | File uploads (receipts, PDFs) |
+| **Offline** | Service Worker + IndexedDB | PWA offline support, sync queue |
+
+---
+
+## System Design
+
+### Directory Structure
+
+```
+d:\Desktop\FinOS\
+├── public/
+│   ├── manifest.json          # PWA manifest
+│   ├── sw.js                  # Service worker
+│   └── icons/                 # App icons (multiple sizes)
+├── src/
+│   ├── app/                   # Next.js App Router pages
+│   │   ├── (auth)/            # Auth routes (login, register)
+│   │   ├── (dashboard)/       # Protected app routes
+│   │   │   ├── dashboard/
+│   │   │   ├── expenses/
+│   │   │   ├── income/
+│   │   │   ├── salary/
+│   │   │   ├── investments/
+│   │   │   ├── goals/
+│   │   │   ├── milestones/
+│   │   │   ├── notes/
+│   │   │   ├── timeline/
+│   │   │   ├── analytics/
+│   │   │   ├── reports/
+│   │   │   └── settings/
+│   │   ├── api/               # API routes (if needed)
+│   │   ├── layout.tsx         # Root layout
+│   │   └── page.tsx           # Landing/redirect
+│   ├── components/
+│   │   ├── ui/                # shadcn/ui components
+│   │   ├── layout/            # Sidebar, Header, Navigation
+│   │   ├── forms/             # Reusable form components
+│   │   ├── charts/            # Recharts wrappers
+│   │   ├── tables/            # TanStack Table wrappers
+│   │   └── shared/            # Common components
+│   ├── hooks/                 # Custom React hooks
+│   ├── lib/
+│   │   ├── supabase/          # Supabase client config
+│   │   ├── validations/       # Zod schemas
+│   │   ├── utils/             # Utility functions
+│   │   └── constants/         # App constants
+│   ├── stores/                # Zustand stores
+│   ├── types/                 # TypeScript type definitions
+│   └── styles/                # Global styles
+├── supabase/
+│   ├── migrations/            # SQL migration files
+│   ├── seed.sql               # Seed data
+│   └── config.toml            # Supabase config
+├── tests/                     # Test files
+├── next.config.ts
+├── tailwind.config.ts
+├── tsconfig.json
+├── package.json
+└── .env.local
+```
+
+### Module Dependency Graph
+
+```mermaid
+graph LR
+    DASH["Dashboard"] --> EXP["Expenses"]
+    DASH --> INC["Income"]
+    DASH --> SAL["Salary"]
+    DASH --> INV["Investments"]
+    DASH --> GOALS["Goals"]
+    DASH --> ANALYTICS["Analytics"]
+
+    ANALYTICS --> EXP
+    ANALYTICS --> INC
+    ANALYTICS --> SAL
+    ANALYTICS --> INV
+    ANALYTICS --> GOALS
+
+    TIMELINE["Timeline"] --> EXP
+    TIMELINE --> INC
+    TIMELINE --> SAL
+    TIMELINE --> INV
+    TIMELINE --> GOALS
+    TIMELINE --> NOTES["Notes"]
+    TIMELINE --> MILE["Milestones"]
+
+    GOALS --> MILE
+    GOALS --> INV
+    GOALS --> NOTES
+
+    REPORTS["Reports"] --> ANALYTICS
+```
+
+---
+
+## Phase Breakdown
+
+| Phase | Name | Modules | Est. Duration |
+|-------|------|---------|---------------|
+| **1** | Foundation & Infrastructure | Project setup, Auth, Layout, Design System, PWA, DB foundation | ~3 days |
+| **2** | Expense Tracking | Categories, Transactions, Recurring, Attachments, CSV import/export | ~3 days |
+| **3** | Income & Salary Tracking | Income sources, Salary components, Appraisal history | ~2 days |
+| **4** | Investment Tracking | Portfolio, Asset types, CAGR/XIRR calculations, Net worth | ~3 days |
+| **5** | Goals & Milestones | Goal CRUD, Linked investments, Progress tracking, Milestones | ~2 days |
+| **6** | Notes & Timeline | Markdown editor, Attachments, Chronological timeline | ~2 days |
+| **7** | Analytics & Reports | Interactive dashboards, Charts, Export, Date range analysis | ~3 days |
+| **8** | Polish & Production | Offline sync, Performance, Testing, Deployment | ~2 days |
+
+> Each phase follows: **Schema → Migrations → APIs → UI → Tests → Review**
+
+---
+
+## Phase 1 — Foundation & Infrastructure
+
+> [!IMPORTANT]
+> This is the current phase. Everything below will be built first.
+
+### 1.1 What We Build
+
+| Component | Details |
+|-----------|---------|
+| **Next.js Project** | App Router, TypeScript, Tailwind CSS, ESLint |
+| **shadcn/ui** | Install and configure component library |
+| **Supabase Client** | Browser + Server client setup |
+| **Authentication** | Email/password login, protected routes, middleware |
+| **Design System** | Color palette, typography, spacing, dark mode |
+| **App Shell** | Sidebar navigation, header, responsive layout |
+| **PWA** | Manifest, service worker, installability |
+| **Database Foundation** | Core tables (profiles, categories) + RLS policies |
+| **Provider Stack** | Theme, Auth, Query providers |
+
+### 1.2 Database Schema — Foundation Tables
+
+```sql
+-- ==============================================
+-- PROFILES (extends Supabase auth.users)
+-- ==============================================
+CREATE TABLE public.profiles (
+    id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    full_name TEXT NOT NULL,
+    avatar_url TEXT,
+    currency TEXT NOT NULL DEFAULT 'INR',
+    locale TEXT NOT NULL DEFAULT 'en-IN',
+    timezone TEXT NOT NULL DEFAULT 'Asia/Kolkata',
+    theme TEXT NOT NULL DEFAULT 'system' CHECK (theme IN ('light', 'dark', 'system')),
+    onboarding_completed BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- RLS: Users can only read/update their own profile
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view own profile"
+    ON public.profiles FOR SELECT
+    USING (auth.uid() = id);
+
+CREATE POLICY "Users can update own profile"
+    ON public.profiles FOR UPDATE
+    USING (auth.uid() = id);
+
+-- Auto-create profile on user signup
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO public.profiles (id, full_name)
+    VALUES (
+        NEW.id,
+        COALESCE(NEW.raw_user_meta_data->>'full_name', 'User')
+    );
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE TRIGGER on_auth_user_created
+    AFTER INSERT ON auth.users
+    FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- ==============================================
+-- CATEGORIES (shared taxonomy for expenses/income)
+-- ==============================================
+CREATE TABLE public.categories (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    slug TEXT NOT NULL,
+    type TEXT NOT NULL CHECK (type IN ('expense', 'income', 'both')),
+    icon TEXT,
+    color TEXT,
+    parent_id UUID REFERENCES public.categories(id) ON DELETE SET NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    is_system BOOLEAN NOT NULL DEFAULT FALSE,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (user_id, slug, type)
+);
+
+ALTER TABLE public.categories ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can manage own categories"
+    ON public.categories FOR ALL
+    USING (auth.uid() = user_id);
+
+-- ==============================================
+-- TAGS (flexible labeling system)
+-- ==============================================
+CREATE TABLE public.tags (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    color TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (user_id, name)
+);
+
+ALTER TABLE public.tags ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can manage own tags"
+    ON public.tags FOR ALL
+    USING (auth.uid() = user_id);
+
+-- ==============================================
+-- ACCOUNTS (bank accounts, wallets, credit cards)
+-- ==============================================
+CREATE TABLE public.accounts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL CHECK (type IN (
+        'savings', 'current', 'credit_card',
+        'wallet', 'cash', 'loan', 'other'
+    )),
+    institution TEXT,
+    balance NUMERIC(15, 2) NOT NULL DEFAULT 0,
+    currency TEXT NOT NULL DEFAULT 'INR',
+    icon TEXT,
+    color TEXT,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.accounts ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can manage own accounts"
+    ON public.accounts FOR ALL
+    USING (auth.uid() = user_id);
+
+-- ==============================================
+-- UPDATED_AT TRIGGER (reusable)
+-- ==============================================
+CREATE OR REPLACE FUNCTION public.update_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = now();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER set_profiles_updated_at
+    BEFORE UPDATE ON public.profiles
+    FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+
+CREATE TRIGGER set_categories_updated_at
+    BEFORE UPDATE ON public.categories
+    FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+
+CREATE TRIGGER set_accounts_updated_at
+    BEFORE UPDATE ON public.accounts
+    FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+```
+
+### 1.3 Authentication Flow
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant App as Next.js App
+    participant MW as Middleware
+    participant Auth as Supabase Auth
+    participant DB as PostgreSQL
+
+    User->>App: Visit /login
+    App->>User: Login form
+    User->>Auth: Submit credentials
+    Auth->>Auth: Validate
+    Auth->>DB: Create session
+    Auth-->>App: Session token
+    App->>MW: Redirect to /dashboard
+    MW->>Auth: Verify session
+    Auth-->>MW: Valid
+    MW-->>App: Allow access
+    App->>DB: Fetch profile
+    DB-->>App: Profile data
+    App->>User: Dashboard
+```
+
+### 1.4 App Shell — Layout Design
+
+The app shell follows a **sidebar + main content** pattern:
+
+```
+┌─────────────────────────────────────────────┐
+│ ┌─────────┐ ┌─────────────────────────────┐ │
+│ │         │ │  Header (breadcrumb, user)   │ │
+│ │         │ ├─────────────────────────────┤ │
+│ │ Sidebar │ │                             │ │
+│ │  (nav)  │ │       Main Content          │ │
+│ │         │ │                             │ │
+│ │ • Dash  │ │                             │ │
+│ │ • Exp   │ │                             │ │
+│ │ • Inc   │ │                             │ │
+│ │ • Sal   │ │                             │ │
+│ │ • Inv   │ │                             │ │
+│ │ • Goals │ │                             │ │
+│ │ • Notes │ │                             │ │
+│ │ • Time  │ │                             │ │
+│ │ • Ana   │ │                             │ │
+│ │ • Set   │ │                             │ │
+│ └─────────┘ └─────────────────────────────┘ │
+└─────────────────────────────────────────────┘
+
+Mobile: Sidebar collapses to bottom tab bar + hamburger menu
+```
+
+### 1.5 PWA Configuration
+
+| Feature | Implementation |
+|---------|---------------|
+| **Manifest** | `public/manifest.json` with app name, icons, theme colors |
+| **Service Worker** | `next-pwa` or `serwist` for Next.js integration |
+| **Icons** | 192×192, 384×384, 512×512 (+ maskable variants) |
+| **Offline Page** | Custom offline fallback page |
+| **Install Prompt** | Custom "Add to Home Screen" banner |
+
+### 1.6 Design System Tokens
+
+| Token | Value | Usage |
+|-------|-------|-------|
+| **Primary** | `hsl(217, 91%, 60%)` | Buttons, links, active states |
+| **Success** | `hsl(142, 71%, 45%)` | Income, positive values |
+| **Danger** | `hsl(0, 84%, 60%)` | Expenses, negative values, errors |
+| **Warning** | `hsl(38, 92%, 50%)` | Alerts, pending states |
+| **Background** | `hsl(222, 47%, 11%)` (dark) | Main background |
+| **Card** | `hsl(217, 33%, 17%)` (dark) | Card surfaces |
+| **Border** | `hsl(217, 33%, 25%)` (dark) | Borders, dividers |
+| **Font** | Inter (Google Fonts) | All text |
+| **Mono** | JetBrains Mono | Numbers, code |
+| **Radius** | `0.75rem` | Default border radius |
+| **Spacing** | 4px base unit | Consistent spacing scale |
+
+### 1.7 Phase 1 Deliverables Checklist
+
+- [ ] Next.js project initialized with TypeScript + Tailwind
+- [ ] shadcn/ui installed and configured
+- [ ] Supabase client setup (browser + server)
+- [ ] Authentication pages (Login, Register)
+- [ ] Auth middleware for route protection
+- [ ] App shell (Sidebar, Header, Layout)
+- [ ] Dark mode toggle
+- [ ] PWA manifest + service worker
+- [ ] Foundation database migration
+- [ ] Seed data (default categories)
+- [ ] Profile settings page (basic)
+- [ ] Mobile-responsive layout
+- [ ] Provider stack (Theme, Auth, Query)
+- [ ] Type definitions for all foundation tables
+- [ ] Utility functions (currency formatting, date formatting)
+
+---
+
+## Database Schema Strategy
+
+### Entity Relationship Overview (Full System)
+
+```mermaid
+erDiagram
+    PROFILES ||--o{ CATEGORIES : has
+    PROFILES ||--o{ TAGS : has
+    PROFILES ||--o{ ACCOUNTS : has
+    PROFILES ||--o{ EXPENSES : has
+    PROFILES ||--o{ INCOMES : has
+    PROFILES ||--o{ SALARY_RECORDS : has
+    PROFILES ||--o{ INVESTMENTS : has
+    PROFILES ||--o{ GOALS : has
+    PROFILES ||--o{ MILESTONES : has
+    PROFILES ||--o{ NOTES : has
+    PROFILES ||--o{ TIMELINE_EVENTS : has
+
+    CATEGORIES ||--o{ EXPENSES : categorizes
+    CATEGORIES ||--o{ INCOMES : categorizes
+    CATEGORIES ||--o{ CATEGORIES : "parent of"
+
+    ACCOUNTS ||--o{ EXPENSES : "paid from"
+    ACCOUNTS ||--o{ INCOMES : "received in"
+
+    EXPENSES }o--o{ TAGS : tagged
+    INCOMES }o--o{ TAGS : tagged
+    NOTES }o--o{ TAGS : tagged
+
+    GOALS ||--o{ MILESTONES : contains
+    GOALS }o--o{ INVESTMENTS : "linked to"
+    GOALS }o--o{ NOTES : "linked to"
+
+    EXPENSES ||--o{ ATTACHMENTS : has
+    NOTES ||--o{ ATTACHMENTS : has
+```
+
+### Migration Naming Convention
+
+```
+YYYYMMDDHHMMSS_descriptive_name.sql
+
+Example:
+20260703000001_create_profiles.sql
+20260703000002_create_categories.sql
+20260703000003_create_accounts.sql
+20260703000004_seed_default_categories.sql
+```
+
+---
+
+## Key Design Decisions
+
+### Why These Choices?
+
+| Decision | Rationale |
+|----------|-----------|
+| **Next.js App Router** | Server components for performance, streaming, built-in API routes |
+| **Supabase over custom backend** | Auth, DB, Storage, Realtime — all in one. Reduces DevOps overhead |
+| **Row Level Security** | Security at the database level — even if API is compromised, data is safe |
+| **Zustand over Redux** | Lightweight, minimal boilerplate, perfect for single-user app |
+| **TanStack Query** | Server state management with caching, background refetching, optimistic updates |
+| **Zod for validation** | Runtime type checking that integrates with TypeScript + React Hook Form |
+| **NUMERIC(15,2) for money** | Avoids floating-point errors. Supports values up to ₹99,99,99,99,99,999.99 |
+| **UUID primary keys** | Globally unique, safe for distributed systems, no sequential ID guessing |
+| **`updated_at` triggers** | Database-level consistency — can't forget to update timestamps |
+| **Soft deletes (future)** | Financial data should never be truly deleted — archival pattern |
+| **Slugs for categories** | URL-friendly, human-readable, stable references |
+| **`is_system` flag** | Prevents users from deleting default categories |
+
+### Security Model
+
+```mermaid
+graph TD
+    A["Request"] --> B{"Authenticated?"}
+    B -->|No| C["Redirect to /login"]
+    B -->|Yes| D{"Route Protected?"}
+    D -->|No| E["Serve Public Page"]
+    D -->|Yes| F["Next.js Middleware<br/>Verify Session"]
+    F --> G{"Session Valid?"}
+    G -->|No| C
+    G -->|Yes| H["Serve Page"]
+    H --> I["Supabase Query"]
+    I --> J{"RLS Policy Check"}
+    J -->|Pass| K["Return Data"]
+    J -->|Fail| L["Empty Result / 403"]
+```
+
+---
+
+> [!NOTE]
+> **Next Steps**: Once you approve this plan, I will begin building Phase 1 step by step:
+> 1. Initialize the Next.js project
+> 2. Install and configure all dependencies
+> 3. Set up the design system and shadcn/ui
+> 4. Build the authentication system
+> 5. Create the app shell (sidebar + layout)
+> 6. Set up PWA configuration
+> 7. Write the foundation database migration
+> 8. Create seed data
+>
+> Each step will be presented for your review before moving to the next.
