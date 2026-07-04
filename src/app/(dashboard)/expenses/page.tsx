@@ -28,17 +28,19 @@ import { ExpenseDetailSheet } from "@/components/expenses/expense-detail-sheet";
 import { CSVHandler } from "@/components/expenses/csv-handler";
 
 import {
-  getExpenses,
   deleteExpense,
   bulkDeleteExpenses,
   createExpense,
-  getCategories,
-  getAccounts,
-  getTags,
   createTag,
   createCategory,
-  getExpenseStats,
 } from "@/app/(dashboard)/expenses/actions";
+import {
+  clientGetExpenses,
+  clientGetExpenseStats,
+  clientGetCategories,
+  clientGetAccounts,
+  clientGetTags,
+} from "@/lib/queries/client-queries";
 import type { ExpenseFiltersFormValues } from "@/lib/validations/expense.schemas";
 import type { ExpenseWithRelations } from "@/types/database";
 
@@ -69,44 +71,27 @@ export default function ExpensesPage() {
     refetch: refetchExpenses,
   } = useQuery({
     queryKey: ["expenses", filters],
-    queryFn: async () => {
-      const res = await getExpenses(filters);
-      if (!res.ok) throw new Error(res.error);
-      return res.data;
-    },
+    queryFn: () => clientGetExpenses(filters),
   });
 
   const { data: statsData, isLoading: statsLoading } = useQuery({
     queryKey: ["expense-stats"],
-    queryFn: async () => {
-      const res = await getExpenseStats();
-      if (!res.ok) throw new Error(res.error);
-      return res.data;
-    },
+    queryFn: () => clientGetExpenseStats(),
   });
 
   const { data: categories = [] } = useQuery({
     queryKey: ["categories"],
-    queryFn: async () => {
-      const res = await getCategories();
-      return res.ok && res.data ? res.data : [];
-    },
+    queryFn: () => clientGetCategories(),
   });
 
   const { data: accounts = [] } = useQuery({
     queryKey: ["accounts"],
-    queryFn: async () => {
-      const res = await getAccounts();
-      return res.ok && res.data ? res.data : [];
-    },
+    queryFn: () => clientGetAccounts(),
   });
 
   const { data: tags = [] } = useQuery({
     queryKey: ["tags"],
-    queryFn: async () => {
-      const res = await getTags();
-      return res.ok && res.data ? res.data : [];
-    },
+    queryFn: () => clientGetTags(),
   });
 
   // ── Mutations ──────────────────────────────────

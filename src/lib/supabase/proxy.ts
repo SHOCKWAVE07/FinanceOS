@@ -1,6 +1,6 @@
 // ==============================================
-// Supabase Middleware Client
-// Used in Next.js middleware for session refresh
+// Supabase Proxy Client (formerly Middleware Client)
+// Used in Next.js proxy for session refresh
 // ==============================================
 
 import { createServerClient } from "@supabase/ssr";

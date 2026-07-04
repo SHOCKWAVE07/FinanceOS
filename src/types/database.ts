@@ -311,6 +311,306 @@ export interface AttachmentInsert {
   storage_path: string;
 }
 
+// ── Phase 3: Income & Salary Tracking ─────────────
+export interface Income {
+  id: string;
+  user_id: string;
+  account_id: string | null;
+  category_id: string | null;
+  recurring_rule_id: string | null;
+  title: string;
+  amount: number;
+  currency: string;
+  date: string;              // ISO date YYYY-MM-DD
+  notes: string | null;
+  source: string | null;
+  is_recurring: boolean;
+  deleted_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface IncomeInsert {
+  user_id: string;
+  title: string;
+  amount: number;
+  date: string;
+  currency?: string;
+  account_id?: string | null;
+  category_id?: string | null;
+  recurring_rule_id?: string | null;
+  notes?: string | null;
+  source?: string | null;
+  is_recurring?: boolean;
+}
+
+export interface IncomeUpdate {
+  title?: string;
+  amount?: number;
+  date?: string;
+  currency?: string;
+  account_id?: string | null;
+  category_id?: string | null;
+  notes?: string | null;
+  source?: string | null;
+  deleted_at?: string | null;
+}
+
+export interface IncomeWithRelations extends Income {
+  category: Pick<Category, "id" | "name" | "icon" | "color"> | null;
+  account: Pick<Account, "id" | "name" | "type"> | null;
+  tags: Tag[];
+}
+
+export interface IncomeTag {
+  income_id: string;
+  tag_id: string;
+}
+
+export interface SalaryRecord {
+  id: string;
+  user_id: string;
+  income_id: string | null;
+  month: string;             // ISO date YYYY-MM-01
+  company: string;
+  designation: string;
+  basic: number;
+  hra: number;
+  special_allowance: number;
+  lta: number;
+  pf_deduction: number;
+  nps_deduction: number;
+  tax_deduction: number;
+  other_deductions: number;
+  net_salary: number;
+  gross_salary: number;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SalaryRecordInsert {
+  user_id: string;
+  income_id?: string | null;
+  month: string;
+  company: string;
+  designation: string;
+  basic?: number;
+  hra?: number;
+  special_allowance?: number;
+  lta?: number;
+  pf_deduction?: number;
+  nps_deduction?: number;
+  tax_deduction?: number;
+  other_deductions?: number;
+  net_salary?: number;
+  gross_salary?: number;
+  notes?: string | null;
+}
+
+export interface SalaryRecordUpdate {
+  income_id?: string | null;
+  month?: string;
+  company?: string;
+  designation?: string;
+  basic?: number;
+  hra?: number;
+  special_allowance?: number;
+  lta?: number;
+  pf_deduction?: number;
+  nps_deduction?: number;
+  tax_deduction?: number;
+  other_deductions?: number;
+  net_salary?: number;
+  gross_salary?: number;
+  notes?: string | null;
+}
+
+export interface SalaryAppraisal {
+  id: string;
+  user_id: string;
+  company: string;
+  designation: string;
+  effective_date: string;    // YYYY-MM-DD
+  previous_gross_salary: number;
+  new_gross_salary: number;
+  percentage_hike: number;   // Auto-calculated
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SalaryAppraisalInsert {
+  user_id: string;
+  company: string;
+  designation: string;
+  effective_date: string;
+  previous_gross_salary: number;
+  new_gross_salary: number;
+  notes?: string | null;
+}
+
+export interface SalaryAppraisalUpdate {
+  company?: string;
+  designation?: string;
+  effective_date?: string;
+  previous_gross_salary?: number;
+}
+
+export interface Investment {
+  id: string;
+  user_id: string;
+  name: string;
+  type: 'mutual_fund' | 'stock' | 'crypto' | 'gold' | 'fixed_deposit' | 'ppf' | 'nps' | 'real_estate' | 'other';
+  institution: string;
+  invested_amount: number;
+  current_value: number;
+  quantity: number | null;
+  avg_buy_price: number | null;
+  currency: string;
+  start_date: string;
+  notes: string | null;
+  deleted_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InvestmentInsert {
+  user_id: string;
+  name: string;
+  type: 'mutual_fund' | 'stock' | 'crypto' | 'gold' | 'fixed_deposit' | 'ppf' | 'nps' | 'real_estate' | 'other';
+  institution: string;
+  invested_amount?: number;
+  current_value?: number;
+  quantity?: number | null;
+  avg_buy_price?: number | null;
+  currency?: string;
+  start_date?: string;
+  notes?: string | null;
+}
+
+export interface InvestmentUpdate {
+  name?: string;
+  type?: 'mutual_fund' | 'stock' | 'crypto' | 'gold' | 'fixed_deposit' | 'ppf' | 'nps' | 'real_estate' | 'other';
+  institution?: string;
+  invested_amount?: number;
+  current_value?: number;
+  quantity?: number | null;
+  avg_buy_price?: number | null;
+  currency?: string;
+  start_date?: string;
+  notes?: string | null;
+}
+
+export interface InvestmentValuation {
+  id: string;
+  investment_id: string;
+  valuation_date: string;
+  value: number;
+  invested_amount: number;
+  created_at: string;
+}
+
+export interface InvestmentValuationInsert {
+  investment_id: string;
+  valuation_date?: string;
+  value: number;
+  invested_amount: number;
+}
+
+export interface InvestmentValuationUpdate {
+  valuation_date?: string;
+  value?: number;
+  invested_amount?: number;
+}
+
+// ── Phase 5 Goals & Milestones ──────────────────────
+export interface Goal {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string | null;
+  target_amount: number;
+  target_date: string; // YYYY-MM-DD
+  category: 'retirement' | 'house' | 'car' | 'education' | 'vacation' | 'emergency_fund' | 'other';
+  status: 'active' | 'completed' | 'paused' | 'abandoned';
+  priority: 'low' | 'medium' | 'high' | 'critical';
+  manual_savings: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GoalInsert {
+  user_id: string;
+  name: string;
+  description?: string | null;
+  target_amount: number;
+  target_date: string;
+  category: 'retirement' | 'house' | 'car' | 'education' | 'vacation' | 'emergency_fund' | 'other';
+  status?: 'active' | 'completed' | 'paused' | 'abandoned';
+  priority?: 'low' | 'medium' | 'high' | 'critical';
+  manual_savings?: number;
+}
+
+export interface GoalUpdate {
+  name?: string;
+  description?: string | null;
+  target_amount?: number;
+  target_date?: string;
+  category?: 'retirement' | 'house' | 'car' | 'education' | 'vacation' | 'emergency_fund' | 'other';
+  status?: 'active' | 'completed' | 'paused' | 'abandoned';
+  priority?: 'low' | 'medium' | 'high' | 'critical';
+  manual_savings?: number;
+}
+
+export interface GoalInvestment {
+  goal_id: string;
+  investment_id: string;
+  allocated_share: number; // percentage
+  created_at: string;
+}
+
+export interface Milestone {
+  id: string;
+  goal_id: string;
+  name: string;
+  target_amount: number | null;
+  target_date: string | null;
+  is_completed: boolean;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MilestoneInsert {
+  goal_id: string;
+  name: string;
+  target_amount?: number | null;
+  target_date?: string | null;
+  is_completed?: boolean;
+  completed_at?: string | null;
+}
+
+export interface MilestoneUpdate {
+  name?: string;
+  target_amount?: number | null;
+  target_date?: string | null;
+  is_completed?: boolean;
+  completed_at?: string | null;
+}
+
+
+export interface InvestmentFilters {
+  search?: string;
+  type?: string;
+  startDate?: string;
+  endDate?: string;
+  page?: number;
+  pageSize?: number;
+  sortBy?: "name" | "invested_amount" | "current_value" | "start_date" | "created_at";
+  sortOrder?: "asc" | "desc";
+}
+
 // ── Pagination helpers ────────────────────────────
 export interface PaginatedResult<T> {
   data: T[];
@@ -332,6 +632,23 @@ export interface ExpenseFilters {
   maxAmount?: number;
   isRecurring?: boolean;
   isReimbursable?: boolean;
+  page?: number;
+  pageSize?: number;
+  sortBy?: "date" | "amount" | "title" | "created_at";
+  sortOrder?: "asc" | "desc";
+}
+
+// ── Income Filters (used by getIncomes) ───────────
+export interface IncomeFilters {
+  search?: string;
+  categoryId?: string;
+  accountId?: string;
+  tagIds?: string[];
+  startDate?: string;   // YYYY-MM-DD
+  endDate?: string;
+  minAmount?: number;
+  maxAmount?: number;
+  isRecurring?: boolean;
   page?: number;
   pageSize?: number;
   sortBy?: "date" | "amount" | "title" | "created_at";
@@ -391,10 +708,73 @@ export type Database = {
         Update: Partial<AttachmentInsert>;
         Relationships: [];
       };
+      // ── Phase 3 ────────────────────────────────
+      incomes: {
+        Row: Income;
+        Insert: IncomeInsert;
+        Update: IncomeUpdate;
+        Relationships: [];
+      };
+      income_tags: {
+        Row: IncomeTag;
+        Insert: IncomeTag;
+        Update: Partial<IncomeTag>;
+        Relationships: [];
+      };
+      salary_records: {
+        Row: SalaryRecord;
+        Insert: SalaryRecordInsert;
+        Update: SalaryRecordUpdate;
+        Relationships: [];
+      };
+      salary_appraisals: {
+        Row: SalaryAppraisal;
+        Insert: SalaryAppraisalInsert;
+        Update: SalaryAppraisalUpdate;
+        Relationships: [];
+      };
+      // ── Phase 4 ────────────────────────────────
+      investments: {
+        Row: Investment;
+        Insert: InvestmentInsert;
+        Update: InvestmentUpdate;
+        Relationships: [];
+      };
+      investment_valuations: {
+        Row: InvestmentValuation;
+        Insert: InvestmentValuationInsert;
+        Update: InvestmentValuationUpdate;
+        Relationships: [];
+      };
+      // ── Phase 5 ────────────────────────────────
+      goals: {
+        Row: Goal;
+        Insert: GoalInsert;
+        Update: GoalUpdate;
+        Relationships: [];
+      };
+      goal_investments: {
+        Row: GoalInvestment;
+        Insert: GoalInvestment;
+        Update: Partial<GoalInvestment>;
+        Relationships: [];
+      };
+      milestones: {
+        Row: Milestone;
+        Insert: MilestoneInsert;
+        Update: MilestoneUpdate;
+        Relationships: [];
+      };
     };
     Views: {
       active_expenses: {
         Row: Expense;
+      };
+      active_incomes: {
+        Row: Income;
+      };
+      active_investments: {
+        Row: Investment;
       };
     };
     Functions: {

@@ -81,3 +81,8 @@ export interface FilterConfig {
   operator: "eq" | "neq" | "gt" | "gte" | "lt" | "lte" | "like" | "in";
   value: string | number | boolean | string[];
 }
+
+export type ActionResult<T = void> =
+  | { ok: true; data: T }
+  | { ok: false; error: string };
+
