@@ -83,6 +83,6 @@ CREATE POLICY "Users can manage own investment valuations"
     );
 
 -- Helper view for active investments
-CREATE OR REPLACE VIEW public.active_investments AS
+CREATE OR REPLACE VIEW public.active_investments WITH (security_invoker = true) AS
     SELECT * FROM public.investments
     WHERE deleted_at IS NULL;

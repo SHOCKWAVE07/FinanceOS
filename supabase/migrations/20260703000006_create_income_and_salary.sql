@@ -168,6 +168,6 @@ CREATE TRIGGER set_salary_appraisals_updated_at
 -- -----------------------------------------------
 -- HELPER VIEW: active incomes with soft-delete filter
 -- -----------------------------------------------
-CREATE OR REPLACE VIEW public.active_incomes AS
+CREATE OR REPLACE VIEW public.active_incomes WITH (security_invoker = true) AS
     SELECT * FROM public.incomes
     WHERE deleted_at IS NULL;

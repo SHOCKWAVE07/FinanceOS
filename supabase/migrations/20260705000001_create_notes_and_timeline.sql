@@ -98,14 +98,14 @@ CREATE INDEX IF NOT EXISTS idx_attachments_note_id ON public.attachments(note_id
 -- -----------------------------------------------
 -- HELPER VIEW: active notes
 -- -----------------------------------------------
-CREATE OR REPLACE VIEW public.active_notes AS
+CREATE OR REPLACE VIEW public.active_notes WITH (security_invoker = true) AS
     SELECT * FROM public.notes
     WHERE deleted_at IS NULL;
 
 -- -----------------------------------------------
 -- UNIFIED TIMELINE EVENTS VIEW
 -- -----------------------------------------------
-CREATE OR REPLACE VIEW public.timeline_events AS
+CREATE OR REPLACE VIEW public.timeline_events WITH (security_invoker = true) AS
     -- 1. Expenses
     SELECT 
         id as event_id,

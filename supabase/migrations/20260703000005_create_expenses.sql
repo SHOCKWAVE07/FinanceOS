@@ -151,7 +151,7 @@ CREATE POLICY "Users can manage own attachments"
 -- HELPER VIEW: expenses with soft-delete filter
 -- (convenience for application queries)
 -- -----------------------------------------------
-CREATE OR REPLACE VIEW public.active_expenses AS
+CREATE OR REPLACE VIEW public.active_expenses WITH (security_invoker = true) AS
     SELECT * FROM public.expenses
     WHERE deleted_at IS NULL;
 

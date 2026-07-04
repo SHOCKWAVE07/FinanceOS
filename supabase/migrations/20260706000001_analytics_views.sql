@@ -6,7 +6,7 @@
 -- -----------------------------------------------
 -- VIEW: Monthly Cash Flow (Incomes vs Expenses)
 -- -----------------------------------------------
-CREATE OR REPLACE VIEW public.monthly_cash_flow AS
+CREATE OR REPLACE VIEW public.monthly_cash_flow WITH (security_invoker = true) AS
 WITH monthly_income AS (
     SELECT 
         user_id,
@@ -43,7 +43,7 @@ FULL OUTER JOIN monthly_expense e
 -- -----------------------------------------------
 -- VIEW: Category Spending Breakdown
 -- -----------------------------------------------
-CREATE OR REPLACE VIEW public.category_spending AS
+CREATE OR REPLACE VIEW public.category_spending WITH (security_invoker = true) AS
 SELECT 
     e.user_id,
     c.name as category_name,
