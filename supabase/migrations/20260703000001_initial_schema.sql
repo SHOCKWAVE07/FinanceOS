@@ -24,10 +24,12 @@ CREATE TABLE IF NOT EXISTS public.profiles (
 -- RLS for Profiles
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can view own profile" ON public.profiles;
 CREATE POLICY "Users can view own profile"
     ON public.profiles FOR SELECT
     USING (auth.uid() = id);
 
+DROP POLICY IF EXISTS "Users can update own profile" ON public.profiles;
 CREATE POLICY "Users can update own profile"
     ON public.profiles FOR UPDATE
     USING (auth.uid() = id);
@@ -53,6 +55,7 @@ CREATE TABLE IF NOT EXISTS public.categories (
 -- RLS for Categories
 ALTER TABLE public.categories ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can manage own categories" ON public.categories;
 CREATE POLICY "Users can manage own categories"
     ON public.categories FOR ALL
     USING (auth.uid() = user_id);
@@ -70,6 +73,7 @@ CREATE TABLE IF NOT EXISTS public.tags (
 -- RLS for Tags
 ALTER TABLE public.tags ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can manage own tags" ON public.tags;
 CREATE POLICY "Users can manage own tags"
     ON public.tags FOR ALL
     USING (auth.uid() = user_id);
@@ -97,6 +101,7 @@ CREATE TABLE IF NOT EXISTS public.accounts (
 -- RLS for Accounts
 ALTER TABLE public.accounts ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can manage own accounts" ON public.accounts;
 CREATE POLICY "Users can manage own accounts"
     ON public.accounts FOR ALL
     USING (auth.uid() = user_id);
@@ -111,14 +116,17 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Apply Triggers
+DROP TRIGGER IF EXISTS set_profiles_updated_at ON public.profiles;
 CREATE TRIGGER set_profiles_updated_at
     BEFORE UPDATE ON public.profiles
     FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
 
+DROP TRIGGER IF EXISTS set_categories_updated_at ON public.categories;
 CREATE TRIGGER set_categories_updated_at
     BEFORE UPDATE ON public.categories
     FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
 
+DROP TRIGGER IF EXISTS set_accounts_updated_at ON public.accounts;
 CREATE TRIGGER set_accounts_updated_at
     BEFORE UPDATE ON public.accounts
     FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
@@ -140,6 +148,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE OR REPLACE TRIGGER on_auth_user_created
     AFTER INSERT ON auth.users
     FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();

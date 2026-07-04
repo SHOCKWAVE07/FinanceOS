@@ -6,7 +6,7 @@
 -- -----------------------------------------------
 -- INCOMES
 -- -----------------------------------------------
-CREATE TABLE public.incomes (
+CREATE TABLE IF NOT EXISTS public.incomes (
     id                UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id           UUID          NOT NULL REFERENCES public.profiles(id)       ON DELETE CASCADE,
     account_id        UUID          REFERENCES public.accounts(id)                ON DELETE SET NULL,
@@ -31,19 +31,21 @@ CREATE TABLE public.incomes (
 );
 
 -- Indexes for common query patterns
-CREATE INDEX idx_incomes_user_id        ON public.incomes(user_id);
-CREATE INDEX idx_incomes_date           ON public.incomes(date DESC);
-CREATE INDEX idx_incomes_category_id    ON public.incomes(category_id);
-CREATE INDEX idx_incomes_account_id     ON public.incomes(account_id);
-CREATE INDEX idx_incomes_active         ON public.incomes(user_id, date DESC)
+CREATE INDEX IF NOT EXISTS idx_incomes_user_id        ON public.incomes(user_id);
+CREATE INDEX IF NOT EXISTS idx_incomes_date           ON public.incomes(date DESC);
+CREATE INDEX IF NOT EXISTS idx_incomes_category_id    ON public.incomes(category_id);
+CREATE INDEX IF NOT EXISTS idx_incomes_account_id     ON public.incomes(account_id);
+CREATE INDEX IF NOT EXISTS idx_incomes_active         ON public.incomes(user_id, date DESC)
     WHERE deleted_at IS NULL;
 
 ALTER TABLE public.incomes ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can manage own incomes" ON public.incomes;
 CREATE POLICY "Users can manage own incomes"
     ON public.incomes FOR ALL
     USING (auth.uid() = user_id);
 
+DROP TRIGGER IF EXISTS set_incomes_updated_at ON public.incomes;
 CREATE TRIGGER set_incomes_updated_at
     BEFORE UPDATE ON public.incomes
     FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
@@ -51,7 +53,7 @@ CREATE TRIGGER set_incomes_updated_at
 -- -----------------------------------------------
 -- INCOME ↔ TAG  (many-to-many)
 -- -----------------------------------------------
-CREATE TABLE public.income_tags (
+CREATE TABLE IF NOT EXISTS public.income_tags (
     income_id  UUID NOT NULL REFERENCES public.incomes(id) ON DELETE CASCADE,
     tag_id      UUID NOT NULL REFERENCES public.tags(id)     ON DELETE CASCADE,
     PRIMARY KEY (income_id, tag_id)
@@ -59,6 +61,7 @@ CREATE TABLE public.income_tags (
 
 ALTER TABLE public.income_tags ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can manage own income tags" ON public.income_tags;
 CREATE POLICY "Users can manage own income tags"
     ON public.income_tags FOR ALL
     USING (
@@ -72,7 +75,7 @@ CREATE POLICY "Users can manage own income tags"
 -- -----------------------------------------------
 -- SALARY RECORDS (Monthly Payslips)
 -- -----------------------------------------------
-CREATE TABLE public.salary_records (
+CREATE TABLE IF NOT EXISTS public.salary_records (
     id                UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id           UUID          NOT NULL REFERENCES public.profiles(id)       ON DELETE CASCADE,
     income_id         UUID          REFERENCES public.incomes(id)                ON DELETE SET NULL,
@@ -104,15 +107,17 @@ CREATE TABLE public.salary_records (
     UNIQUE (user_id, month)
 );
 
-CREATE INDEX idx_salary_records_user_id ON public.salary_records(user_id);
-CREATE INDEX idx_salary_records_month   ON public.salary_records(month DESC);
+CREATE INDEX IF NOT EXISTS idx_salary_records_user_id ON public.salary_records(user_id);
+CREATE INDEX IF NOT EXISTS idx_salary_records_month   ON public.salary_records(month DESC);
 
 ALTER TABLE public.salary_records ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can manage own salary records" ON public.salary_records;
 CREATE POLICY "Users can manage own salary records"
     ON public.salary_records FOR ALL
     USING (auth.uid() = user_id);
 
+DROP TRIGGER IF EXISTS set_salary_records_updated_at ON public.salary_records;
 CREATE TRIGGER set_salary_records_updated_at
     BEFORE UPDATE ON public.salary_records
     FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
@@ -120,7 +125,7 @@ CREATE TRIGGER set_salary_records_updated_at
 -- -----------------------------------------------
 -- SALARY APPRAISALS (Hike History)
 -- -----------------------------------------------
-CREATE TABLE public.salary_appraisals (
+CREATE TABLE IF NOT EXISTS public.salary_appraisals (
     id                    UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id               UUID          NOT NULL REFERENCES public.profiles(id)       ON DELETE CASCADE,
 
@@ -145,15 +150,17 @@ CREATE TABLE public.salary_appraisals (
     updated_at            TIMESTAMPTZ   NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_salary_appraisals_user_id ON public.salary_appraisals(user_id);
-CREATE INDEX idx_salary_appraisals_date    ON public.salary_appraisals(effective_date DESC);
+CREATE INDEX IF NOT EXISTS idx_salary_appraisals_user_id ON public.salary_appraisals(user_id);
+CREATE INDEX IF NOT EXISTS idx_salary_appraisals_date    ON public.salary_appraisals(effective_date DESC);
 
 ALTER TABLE public.salary_appraisals ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can manage own appraisals" ON public.salary_appraisals;
 CREATE POLICY "Users can manage own appraisals"
     ON public.salary_appraisals FOR ALL
     USING (auth.uid() = user_id);
 
+DROP TRIGGER IF EXISTS set_salary_appraisals_updated_at ON public.salary_appraisals;
 CREATE TRIGGER set_salary_appraisals_updated_at
     BEFORE UPDATE ON public.salary_appraisals
     FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
@@ -161,6 +168,6 @@ CREATE TRIGGER set_salary_appraisals_updated_at
 -- -----------------------------------------------
 -- HELPER VIEW: active incomes with soft-delete filter
 -- -----------------------------------------------
-CREATE VIEW public.active_incomes AS
+CREATE OR REPLACE VIEW public.active_incomes AS
     SELECT * FROM public.incomes
     WHERE deleted_at IS NULL;

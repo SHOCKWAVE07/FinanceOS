@@ -4,4 +4,4 @@
 -- ==============================================
 
 ALTER TABLE public.salary_records
-ADD COLUMN nps_deduction NUMERIC(15,2) NOT NULL DEFAULT 0 CHECK (nps_deduction >= 0);
+ADD COLUMN IF NOT EXISTS nps_deduction NUMERIC(15,2) NOT NULL DEFAULT 0 CHECK (nps_deduction >= 0);

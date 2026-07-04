@@ -6,7 +6,7 @@
 -- -----------------------------------------------
 -- NOTES
 -- -----------------------------------------------
-CREATE TABLE public.notes (
+CREATE TABLE IF NOT EXISTS public.notes (
     id          UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id     UUID          NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
     title       TEXT          NOT NULL,
@@ -16,15 +16,17 @@ CREATE TABLE public.notes (
     updated_at  TIMESTAMPTZ   NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_notes_user_id ON public.notes(user_id);
-CREATE INDEX idx_notes_created_at ON public.notes(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notes_user_id ON public.notes(user_id);
+CREATE INDEX IF NOT EXISTS idx_notes_created_at ON public.notes(created_at DESC);
 
 ALTER TABLE public.notes ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can manage own notes" ON public.notes;
 CREATE POLICY "Users can manage own notes"
     ON public.notes FOR ALL
     USING (auth.uid() = user_id);
 
+DROP TRIGGER IF EXISTS set_notes_updated_at ON public.notes;
 CREATE TRIGGER set_notes_updated_at
     BEFORE UPDATE ON public.notes
     FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
@@ -32,7 +34,7 @@ CREATE TRIGGER set_notes_updated_at
 -- -----------------------------------------------
 -- NOTE ↔ TAG (many-to-many junction)
 -- -----------------------------------------------
-CREATE TABLE public.note_tags (
+CREATE TABLE IF NOT EXISTS public.note_tags (
     note_id  UUID NOT NULL REFERENCES public.notes(id) ON DELETE CASCADE,
     tag_id   UUID NOT NULL REFERENCES public.tags(id)     ON DELETE CASCADE,
     PRIMARY KEY (note_id, tag_id)
@@ -40,6 +42,7 @@ CREATE TABLE public.note_tags (
 
 ALTER TABLE public.note_tags ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can manage own note tags" ON public.note_tags;
 CREATE POLICY "Users can manage own note tags"
     ON public.note_tags FOR ALL
     USING (
@@ -53,7 +56,7 @@ CREATE POLICY "Users can manage own note tags"
 -- -----------------------------------------------
 -- NOTE ↔ ENTITIES LINKS (Polymorphic junction)
 -- -----------------------------------------------
-CREATE TABLE public.note_links (
+CREATE TABLE IF NOT EXISTS public.note_links (
     note_id      UUID NOT NULL REFERENCES public.notes(id) ON DELETE CASCADE,
     link_type    TEXT NOT NULL CHECK (link_type IN ('expense', 'income', 'investment', 'goal')),
     link_id      UUID NOT NULL,
@@ -62,6 +65,7 @@ CREATE TABLE public.note_links (
 
 ALTER TABLE public.note_links ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can manage own note links" ON public.note_links;
 CREATE POLICY "Users can manage own note links"
     ON public.note_links FOR ALL
     USING (
@@ -94,7 +98,7 @@ CREATE INDEX IF NOT EXISTS idx_attachments_note_id ON public.attachments(note_id
 -- -----------------------------------------------
 -- HELPER VIEW: active notes
 -- -----------------------------------------------
-CREATE VIEW public.active_notes AS
+CREATE OR REPLACE VIEW public.active_notes AS
     SELECT * FROM public.notes
     WHERE deleted_at IS NULL;
 

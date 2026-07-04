@@ -6,7 +6,7 @@
 -- -----------------------------------------------
 -- RECURRING RULES (must exist before expenses)
 -- -----------------------------------------------
-CREATE TABLE public.recurring_rules (
+CREATE TABLE IF NOT EXISTS public.recurring_rules (
     id              UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id         UUID          NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
 
@@ -36,10 +36,12 @@ CREATE TABLE public.recurring_rules (
 
 ALTER TABLE public.recurring_rules ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can manage own recurring rules" ON public.recurring_rules;
 CREATE POLICY "Users can manage own recurring rules"
     ON public.recurring_rules FOR ALL
     USING (auth.uid() = user_id);
 
+DROP TRIGGER IF EXISTS set_recurring_rules_updated_at ON public.recurring_rules;
 CREATE TRIGGER set_recurring_rules_updated_at
     BEFORE UPDATE ON public.recurring_rules
     FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
@@ -47,7 +49,7 @@ CREATE TRIGGER set_recurring_rules_updated_at
 -- -----------------------------------------------
 -- EXPENSES
 -- -----------------------------------------------
-CREATE TABLE public.expenses (
+CREATE TABLE IF NOT EXISTS public.expenses (
     id                UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id           UUID          NOT NULL REFERENCES public.profiles(id)       ON DELETE CASCADE,
     account_id        UUID          REFERENCES public.accounts(id)                ON DELETE SET NULL,
@@ -74,19 +76,21 @@ CREATE TABLE public.expenses (
 );
 
 -- Indexes for common query patterns
-CREATE INDEX idx_expenses_user_id        ON public.expenses(user_id);
-CREATE INDEX idx_expenses_date           ON public.expenses(date DESC);
-CREATE INDEX idx_expenses_category_id    ON public.expenses(category_id);
-CREATE INDEX idx_expenses_account_id     ON public.expenses(account_id);
-CREATE INDEX idx_expenses_active         ON public.expenses(user_id, date DESC)
+CREATE INDEX IF NOT EXISTS idx_expenses_user_id        ON public.expenses(user_id);
+CREATE INDEX IF NOT EXISTS idx_expenses_date           ON public.expenses(date DESC);
+CREATE INDEX IF NOT EXISTS idx_expenses_category_id    ON public.expenses(category_id);
+CREATE INDEX IF NOT EXISTS idx_expenses_account_id     ON public.expenses(account_id);
+CREATE INDEX IF NOT EXISTS idx_expenses_active         ON public.expenses(user_id, date DESC)
     WHERE deleted_at IS NULL;
 
 ALTER TABLE public.expenses ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can manage own expenses" ON public.expenses;
 CREATE POLICY "Users can manage own expenses"
     ON public.expenses FOR ALL
     USING (auth.uid() = user_id);
 
+DROP TRIGGER IF EXISTS set_expenses_updated_at ON public.expenses;
 CREATE TRIGGER set_expenses_updated_at
     BEFORE UPDATE ON public.expenses
     FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
@@ -94,7 +98,7 @@ CREATE TRIGGER set_expenses_updated_at
 -- -----------------------------------------------
 -- EXPENSE ↔ TAG  (many-to-many)
 -- -----------------------------------------------
-CREATE TABLE public.expense_tags (
+CREATE TABLE IF NOT EXISTS public.expense_tags (
     expense_id  UUID NOT NULL REFERENCES public.expenses(id) ON DELETE CASCADE,
     tag_id      UUID NOT NULL REFERENCES public.tags(id)     ON DELETE CASCADE,
     PRIMARY KEY (expense_id, tag_id)
@@ -103,6 +107,7 @@ CREATE TABLE public.expense_tags (
 ALTER TABLE public.expense_tags ENABLE ROW LEVEL SECURITY;
 
 -- Policy: user must own the parent expense
+DROP POLICY IF EXISTS "Users can manage own expense tags" ON public.expense_tags;
 CREATE POLICY "Users can manage own expense tags"
     ON public.expense_tags FOR ALL
     USING (
@@ -117,7 +122,7 @@ CREATE POLICY "Users can manage own expense tags"
 -- ATTACHMENTS  (receipts / PDFs)
 -- Reusable across expenses (Phase 2) and notes (Phase 6)
 -- -----------------------------------------------
-CREATE TABLE public.attachments (
+CREATE TABLE IF NOT EXISTS public.attachments (
     id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id      UUID        NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
 
@@ -133,10 +138,11 @@ CREATE TABLE public.attachments (
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_attachments_expense_id ON public.attachments(expense_id);
+CREATE INDEX IF NOT EXISTS idx_attachments_expense_id ON public.attachments(expense_id);
 
 ALTER TABLE public.attachments ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can manage own attachments" ON public.attachments;
 CREATE POLICY "Users can manage own attachments"
     ON public.attachments FOR ALL
     USING (auth.uid() = user_id);
@@ -145,7 +151,7 @@ CREATE POLICY "Users can manage own attachments"
 -- HELPER VIEW: expenses with soft-delete filter
 -- (convenience for application queries)
 -- -----------------------------------------------
-CREATE VIEW public.active_expenses AS
+CREATE OR REPLACE VIEW public.active_expenses AS
     SELECT * FROM public.expenses
     WHERE deleted_at IS NULL;
 

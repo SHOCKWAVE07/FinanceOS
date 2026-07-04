@@ -6,7 +6,7 @@
 -- -----------------------------------------------
 -- INVESTMENTS (Current holdings/assets)
 -- -----------------------------------------------
-CREATE TABLE public.investments (
+CREATE TABLE IF NOT EXISTS public.investments (
     id                UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id           UUID          NOT NULL REFERENCES public.profiles(id)       ON DELETE CASCADE,
     
@@ -35,16 +35,18 @@ CREATE TABLE public.investments (
     updated_at        TIMESTAMPTZ   NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_investments_user_id ON public.investments(user_id);
-CREATE INDEX idx_investments_type    ON public.investments(type);
-CREATE INDEX idx_investments_active  ON public.investments(user_id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_investments_user_id ON public.investments(user_id);
+CREATE INDEX IF NOT EXISTS idx_investments_type    ON public.investments(type);
+CREATE INDEX IF NOT EXISTS idx_investments_active  ON public.investments(user_id) WHERE deleted_at IS NULL;
 
 ALTER TABLE public.investments ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can manage own investments" ON public.investments;
 CREATE POLICY "Users can manage own investments"
     ON public.investments FOR ALL
     USING (auth.uid() = user_id);
 
+DROP TRIGGER IF EXISTS set_investments_updated_at ON public.investments;
 CREATE TRIGGER set_investments_updated_at
     BEFORE UPDATE ON public.investments
     FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
@@ -52,7 +54,7 @@ CREATE TRIGGER set_investments_updated_at
 -- -----------------------------------------------
 -- INVESTMENT VALUATIONS (Valuation History)
 -- -----------------------------------------------
-CREATE TABLE public.investment_valuations (
+CREATE TABLE IF NOT EXISTS public.investment_valuations (
     id                UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
     investment_id     UUID          NOT NULL REFERENCES public.investments(id)    ON DELETE CASCADE,
     
@@ -65,10 +67,11 @@ CREATE TABLE public.investment_valuations (
     UNIQUE (investment_id, valuation_date)
 );
 
-CREATE INDEX idx_valuations_date ON public.investment_valuations(valuation_date DESC);
+CREATE INDEX IF NOT EXISTS idx_valuations_date ON public.investment_valuations(valuation_date DESC);
 
 ALTER TABLE public.investment_valuations ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can manage own investment valuations" ON public.investment_valuations;
 CREATE POLICY "Users can manage own investment valuations"
     ON public.investment_valuations FOR ALL
     USING (

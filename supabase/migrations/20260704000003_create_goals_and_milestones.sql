@@ -1,7 +1,7 @@
 -- ==============================================
 -- GOALS
 -- ==============================================
-CREATE TABLE public.goals (
+CREATE TABLE IF NOT EXISTS public.goals (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
@@ -18,6 +18,7 @@ CREATE TABLE public.goals (
 
 ALTER TABLE public.goals ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can manage own goals" ON public.goals;
 CREATE POLICY "Users can manage own goals"
     ON public.goals FOR ALL
     USING (auth.uid() = user_id);
@@ -25,7 +26,7 @@ CREATE POLICY "Users can manage own goals"
 -- ==============================================
 -- GOAL INVESTMENTS (Junction Table)
 -- ==============================================
-CREATE TABLE public.goal_investments (
+CREATE TABLE IF NOT EXISTS public.goal_investments (
     goal_id UUID NOT NULL REFERENCES public.goals(id) ON DELETE CASCADE,
     investment_id UUID NOT NULL REFERENCES public.investments(id) ON DELETE CASCADE,
     allocated_share NUMERIC(5, 2) NOT NULL DEFAULT 100.00 CHECK (allocated_share >= 0 AND allocated_share <= 100.00),
@@ -36,6 +37,7 @@ CREATE TABLE public.goal_investments (
 ALTER TABLE public.goal_investments ENABLE ROW LEVEL SECURITY;
 
 -- Users can only manage linkages to goals they own
+DROP POLICY IF EXISTS "Users can manage goal investments link" ON public.goal_investments;
 CREATE POLICY "Users can manage goal investments link"
     ON public.goal_investments FOR ALL
     USING (
@@ -49,7 +51,7 @@ CREATE POLICY "Users can manage goal investments link"
 -- ==============================================
 -- MILESTONES
 -- ==============================================
-CREATE TABLE public.milestones (
+CREATE TABLE IF NOT EXISTS public.milestones (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     goal_id UUID NOT NULL REFERENCES public.goals(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
@@ -64,6 +66,7 @@ CREATE TABLE public.milestones (
 ALTER TABLE public.milestones ENABLE ROW LEVEL SECURITY;
 
 -- Users can only manage milestones for goals they own
+DROP POLICY IF EXISTS "Users can manage milestones" ON public.milestones;
 CREATE POLICY "Users can manage milestones"
     ON public.milestones FOR ALL
     USING (
@@ -77,10 +80,12 @@ CREATE POLICY "Users can manage milestones"
 -- ==============================================
 -- TRIGGERS
 -- ==============================================
+DROP TRIGGER IF EXISTS set_goals_updated_at ON public.goals;
 CREATE TRIGGER set_goals_updated_at
     BEFORE UPDATE ON public.goals
     FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
 
+DROP TRIGGER IF EXISTS set_milestones_updated_at ON public.milestones;
 CREATE TRIGGER set_milestones_updated_at
     BEFORE UPDATE ON public.milestones
     FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
