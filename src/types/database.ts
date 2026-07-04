@@ -599,6 +599,65 @@ export interface MilestoneUpdate {
   completed_at?: string | null;
 }
 
+// ── Notes ───────────────────────────────────────
+export interface Note {
+  id: string;
+  user_id: string;
+  title: string;
+  content: string;
+  deleted_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NoteInsert {
+  id?: string;
+  user_id?: string;
+  title: string;
+  content?: string;
+  deleted_at?: string | null;
+}
+
+export interface NoteUpdate {
+  title?: string;
+  content?: string;
+  deleted_at?: string | null;
+}
+
+export interface NoteTag {
+  note_id: string;
+  tag_id: string;
+}
+
+export interface NoteLink {
+  note_id: string;
+  link_type: "expense" | "income" | "investment" | "goal";
+  link_id: string;
+}
+
+export interface NoteWithRelations extends Note {
+  tags: Tag[];
+  links: NoteLink[];
+  attachments: Attachment[];
+}
+
+export interface TimelineEvent {
+  event_id: string;
+  user_id: string;
+  event_date: string;
+  event_type:
+    | "expense"
+    | "income"
+    | "salary"
+    | "investment_purchase"
+    | "note"
+    | "milestone_achieved"
+    | "milestone_pending";
+  title: string;
+  amount: number | null;
+  currency: string;
+  description: string | null;
+}
 
 export interface InvestmentFilters {
   search?: string;
@@ -765,6 +824,24 @@ export type Database = {
         Update: MilestoneUpdate;
         Relationships: [];
       };
+      notes: {
+        Row: Note;
+        Insert: NoteInsert;
+        Update: NoteUpdate;
+        Relationships: [];
+      };
+      note_tags: {
+        Row: NoteTag;
+        Insert: NoteTag;
+        Update: Partial<NoteTag>;
+        Relationships: [];
+      };
+      note_links: {
+        Row: NoteLink;
+        Insert: NoteLink;
+        Update: Partial<NoteLink>;
+        Relationships: [];
+      };
     };
     Views: {
       active_expenses: {
@@ -775,6 +852,12 @@ export type Database = {
       };
       active_investments: {
         Row: Investment;
+      };
+      active_notes: {
+        Row: Note;
+      };
+      timeline_events: {
+        Row: TimelineEvent;
       };
     };
     Functions: {

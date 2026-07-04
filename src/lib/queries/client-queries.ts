@@ -6,7 +6,8 @@
 import { createClient } from "@/lib/supabase/client";
 import { expenseFiltersSchema } from "@/lib/validations/expense.schemas";
 import { incomeFiltersSchema } from "@/lib/validations/income.schemas";
-import type { ExpenseWithRelations, IncomeWithRelations } from "@/types/database";
+import { noteFiltersSchema, timelineFiltersSchema } from "@/lib/validations/note.schemas";
+import type { ExpenseWithRelations, IncomeWithRelations, Note, TimelineEvent, NoteWithRelations } from "@/types/database";
 
 export async function clientGetExpenses(rawFilters: any = {}) {
   const supabase = createClient() as any;
@@ -413,3 +414,153 @@ export async function clientGetAccounts() {
   if (error) throw error;
   return data;
 }
+
+export async function clientGetNotes(rawFilters: any = {}) {
+  const supabase = createClient() as any;
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Unauthorized");
+
+  const filters = noteFiltersSchema.parse(rawFilters);
+
+  let query = supabase
+    .from("notes")
+    .select("*", { count: "exact" })
+    .eq("user_id", user.id)
+    .is("deleted_at", null);
+
+  if (filters.search) {
+    query = query.or(`title.ilike.%${filters.search}%,content.ilike.%${filters.search}%`);
+  }
+
+  if (filters.tagIds && filters.tagIds.length > 0) {
+    const { data: noteTagsData } = await supabase
+      .from("note_tags")
+      .select("note_id")
+      .in("tag_id", filters.tagIds);
+    const ids = [...new Set((noteTagsData ?? []).map((r: any) => r.note_id))];
+    query = query.in("id", ids.length > 0 ? ids : ["00000000-0000-0000-0000-000000000000"]);
+  }
+
+  if (filters.linkType && filters.linkId) {
+    const { data: noteLinksData } = await supabase
+      .from("note_links")
+      .select("note_id")
+      .eq("link_type", filters.linkType)
+      .eq("link_id", filters.linkId);
+    const ids = [...new Set((noteLinksData ?? []).map((r: any) => r.note_id))];
+    query = query.in("id", ids.length > 0 ? ids : ["00000000-0000-0000-0000-000000000000"]);
+  }
+
+  const offset = (filters.page - 1) * filters.pageSize;
+  query = query
+    .order(filters.sortBy, { ascending: filters.sortOrder === "asc" })
+    .range(offset, offset + filters.pageSize - 1);
+
+  const { data, error, count } = await query;
+  if (error) throw error;
+
+  const total = count ?? 0;
+  const noteIds = (data || []).map((n: any) => n.id);
+
+  if (noteIds.length === 0) {
+    return {
+      data: [] as NoteWithRelations[],
+      count: total,
+      page: filters.page,
+      pageSize: filters.pageSize,
+      pageCount: Math.ceil(total / filters.pageSize),
+    };
+  }
+
+  // Fetch Tags
+  const { data: tagsData } = await supabase
+    .from("note_tags")
+    .select("note_id, tags(*)")
+    .in("note_id", noteIds);
+
+  // Fetch Links
+  const { data: linksData } = await supabase
+    .from("note_links")
+    .select("*")
+    .in("note_id", noteIds);
+
+  // Fetch Attachments
+  const { data: attachData } = await supabase
+    .from("attachments")
+    .select("*")
+    .in("note_id", noteIds);
+
+  // Combine notes with their relations
+  const notesWithRelations = (data || []).map((note: any) => {
+    const associatedTags = (tagsData || [])
+      .filter((t: any) => t.note_id === note.id && t.tags)
+      .map((t: any) => t.tags);
+
+    const associatedLinks = (linksData || [])
+      .filter((l: any) => l.note_id === note.id);
+
+    const associatedAttachments = (attachData || [])
+      .filter((a: any) => a.note_id === note.id);
+
+    return {
+      ...note,
+      tags: associatedTags,
+      links: associatedLinks,
+      attachments: associatedAttachments,
+    };
+  });
+
+  return {
+    data: notesWithRelations as NoteWithRelations[],
+    count: total,
+    page: filters.page,
+    pageSize: filters.pageSize,
+    pageCount: Math.ceil(total / filters.pageSize),
+  };
+}
+
+export async function clientGetTimeline(rawFilters: any = {}) {
+  const supabase = createClient() as any;
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Unauthorized");
+
+  const filters = timelineFiltersSchema.parse(rawFilters);
+
+  let query = supabase
+    .from("timeline_events")
+    .select("*", { count: "exact" })
+    .eq("user_id", user.id);
+
+  if (filters.search) {
+    query = query.or(`title.ilike.%${filters.search}%,description.ilike.%${filters.search}%`);
+  }
+
+  if (filters.eventTypes && filters.eventTypes.length > 0) {
+    query = query.in("event_type", filters.eventTypes);
+  }
+
+  if (filters.startDate) {
+    query = query.gte("event_date", filters.startDate);
+  }
+  if (filters.endDate) {
+    query = query.lte("event_date", filters.endDate);
+  }
+
+  const offset = (filters.page - 1) * filters.pageSize;
+  query = query
+    .order(filters.sortBy, { ascending: filters.sortOrder === "asc" })
+    .range(offset, offset + filters.pageSize - 1);
+
+  const { data, error, count } = await query;
+  if (error) throw error;
+
+  const total = count ?? 0;
+  return {
+    data: data as TimelineEvent[],
+    count: total,
+    page: filters.page,
+    pageSize: filters.pageSize,
+    pageCount: Math.ceil(total / filters.pageSize),
+  };
+}
+
