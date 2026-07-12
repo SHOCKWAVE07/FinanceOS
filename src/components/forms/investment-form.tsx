@@ -9,7 +9,9 @@ import * as React from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { format } from "date-fns";
-import { Loader2 } from "lucide-react";
+import { Loader2, Plus } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { QuickAccountDialog } from "@/components/accounts/quick-account-dialog";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -22,16 +24,18 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 
 import { investmentSchema, type InvestmentFormValues } from "@/lib/validations/investment.schemas";
 import { createInvestment, updateInvestment } from "@/app/(dashboard)/investments/actions";
-import type { Investment } from "@/types/database";
+import type { Account, Investment } from "@/types/database";
 
 interface InvestmentFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   investment?: Investment;
+  accounts: Account[];
+  categories?: any[];
   onSuccess?: () => void;
 }
 
-function buildDefaults(item?: Investment): InvestmentFormValues {
+function buildDefaults(item?: Investment, defaultAccountId?: string | null): InvestmentFormValues {
   if (item) {
     return {
       name: item.name,
@@ -42,6 +46,7 @@ function buildDefaults(item?: Investment): InvestmentFormValues {
       quantity: item.quantity !== null && item.quantity !== undefined ? Number(item.quantity) : null,
       avg_buy_price: item.avg_buy_price !== null && item.avg_buy_price !== undefined ? Number(item.avg_buy_price) : null,
       currency: item.currency || "INR",
+      account_id: item.account_id,
       start_date: item.start_date,
       notes: item.notes ?? "",
     };
@@ -55,6 +60,7 @@ function buildDefaults(item?: Investment): InvestmentFormValues {
     quantity: null,
     avg_buy_price: null,
     currency: "INR",
+    account_id: defaultAccountId || null,
     start_date: format(new Date(), "yyyy-MM-dd"),
     notes: "",
   };
@@ -64,22 +70,32 @@ export function InvestmentForm({
   open,
   onOpenChange,
   investment,
+  accounts,
+  categories = [],
   onSuccess,
 }: InvestmentFormProps) {
+  const queryClient = useQueryClient();
+  const [quickAccountOpen, setQuickAccountOpen] = React.useState(false);
   const isEdit = !!investment;
+
+  const defaultAcc = accounts.find((a) => (a as any).is_default) || accounts[0];
+  const defaultAccId = defaultAcc?.id || null;
 
   const form = useForm<InvestmentFormValues>({
     resolver: zodResolver(investmentSchema) as any,
-    defaultValues: buildDefaults(investment),
+    defaultValues: buildDefaults(investment, defaultAccId),
   });
 
   const isSubmitting = form.formState.isSubmitting;
 
   React.useEffect(() => {
-    form.reset(buildDefaults(investment));
-  }, [investment, form]);
+    form.reset(buildDefaults(investment, defaultAccId));
+  }, [investment, form, defaultAccId]);
 
   const onSubmit = async (values: InvestmentFormValues) => {
+    // Set current_value equal to invested_amount to simplify returns tracking
+    values.current_value = values.invested_amount;
+
     const result = isEdit
       ? await updateInvestment(investment!.id, values)
       : await createInvestment(values);
@@ -90,7 +106,7 @@ export function InvestmentForm({
     }
 
     toast.success(isEdit ? "Investment asset updated" : "Investment asset recorded");
-    form.reset(buildDefaults(undefined));
+    form.reset(buildDefaults(undefined, defaultAccId));
     onOpenChange(false);
     onSuccess?.();
   };
@@ -154,15 +170,26 @@ export function InvestmentForm({
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          <SelectItem value="mutual_fund">Mutual Fund</SelectItem>
-                          <SelectItem value="stock">Equity/Stock</SelectItem>
-                          <SelectItem value="crypto">Crypto Asset</SelectItem>
-                          <SelectItem value="gold">Gold</SelectItem>
-                          <SelectItem value="fixed_deposit">Fixed Deposit</SelectItem>
-                          <SelectItem value="ppf">PPF</SelectItem>
-                          <SelectItem value="nps">NPS</SelectItem>
-                          <SelectItem value="real_estate">Real Estate</SelectItem>
-                          <SelectItem value="other">Other</SelectItem>
+                          {categories.length > 0 ? (
+                            categories.map((cat) => (
+                              <SelectItem key={cat.slug} value={cat.slug}>
+                                <span className="mr-2">{cat.icon}</span>
+                                <span>{cat.name}</span>
+                              </SelectItem>
+                            ))
+                          ) : (
+                            <>
+                              <SelectItem value="mutual_fund">Mutual Fund</SelectItem>
+                              <SelectItem value="stock">Equity/Stock</SelectItem>
+                              <SelectItem value="crypto">Crypto Asset</SelectItem>
+                              <SelectItem value="gold">Gold</SelectItem>
+                              <SelectItem value="fixed_deposit">Fixed Deposit</SelectItem>
+                              <SelectItem value="ppf">PPF</SelectItem>
+                              <SelectItem value="nps">NPS</SelectItem>
+                              <SelectItem value="real_estate">Real Estate</SelectItem>
+                              <SelectItem value="other">Other</SelectItem>
+                            </>
+                          )}
                         </SelectContent>
                       </Select>
                       <FormMessage />
@@ -187,36 +214,59 @@ export function InvestmentForm({
                 />
               </div>
 
-              {/* Invested Amount & Current Value */}
-              <div className="grid grid-cols-2 gap-3">
-                <FormField
-                  control={form.control}
-                  name="invested_amount"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Invested Value (Principal)</FormLabel>
-                      <FormControl>
-                        <Input type="number" step="0.01" min="0" placeholder="0.00" {...field} onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+              {/* Debit Account */}
+              <FormField
+                control={form.control}
+                name="account_id"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Debit Account</FormLabel>
+                    <div className="flex gap-2">
+                      <Select value={field.value ?? undefined} onValueChange={field.onChange}>
+                        <FormControl className="flex-1">
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select bank/cash account">
+                              {field.value ? accounts.find((acc) => acc.id === field.value)?.name : undefined}
+                            </SelectValue>
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {accounts.map((acc) => (
+                            <SelectItem key={acc.id} value={acc.id}>
+                              {acc.name} ({acc.type})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="shrink-0 border-dashed hover:border-primary hover:text-primary"
+                        onClick={() => setQuickAccountOpen(true)}
+                      >
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-                <FormField
-                  control={form.control}
-                  name="current_value"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Current Value</FormLabel>
-                      <FormControl>
-                        <Input type="number" step="0.01" min="0" placeholder="0.00" {...field} onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
+              {/* Invested Amount (Principal) */}
+              <FormField
+                control={form.control}
+                name="invested_amount"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Invested Value (Principal)</FormLabel>
+                    <FormControl>
+                      <Input type="number" step="0.01" min="0" placeholder="0.00" {...field} onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
               {/* Quantity & Avg Buy Price (Optional) */}
               <div className="grid grid-cols-2 gap-3">
@@ -320,6 +370,15 @@ export function InvestmentForm({
           </Button>
         </div>
       </SheetContent>
+
+      <QuickAccountDialog
+        open={quickAccountOpen}
+        onOpenChange={setQuickAccountOpen}
+        onSuccess={(newAcc) => {
+          queryClient.invalidateQueries({ queryKey: ["accounts"] });
+          form.setValue("account_id", newAcc.id);
+        }}
+      />
     </Sheet>
   );
 }

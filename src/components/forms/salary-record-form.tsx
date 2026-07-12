@@ -9,7 +9,9 @@ import * as React from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { format } from "date-fns";
-import { Loader2 } from "lucide-react";
+import { Loader2, Plus } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { QuickAccountDialog } from "@/components/accounts/quick-account-dialog";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -29,28 +31,28 @@ import type { Account, SalaryRecord } from "@/types/database";
 interface SalaryRecordFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  record?: SalaryRecord;
+  record?: any;
   accounts: Account[];
   onSuccess?: () => void;
 }
 
-function buildDefaults(record?: SalaryRecord): SalaryRecordFormValues {
+function buildDefaults(record?: any, defaultAccountId?: string | null): SalaryRecordFormValues {
   if (record) {
     return {
-      month: record.month.substring(0, 7), // "YYYY-MM"
+      month: record.month,
       company: record.company,
       designation: record.designation,
-      basic: record.basic,
-      hra: record.hra,
-      special_allowance: record.special_allowance,
-      lta: record.lta,
-      pf_deduction: record.pf_deduction,
-      nps_deduction: record.nps_deduction,
-      tax_deduction: record.tax_deduction,
-      other_deductions: record.other_deductions,
+      basic: Number(record.basic),
+      hra: Number(record.hra),
+      special_allowance: Number(record.special_allowance),
+      lta: Number(record.lta),
+      pf_deduction: Number(record.pf_deduction),
+      nps_deduction: Number(record.nps_deduction),
+      tax_deduction: Number(record.tax_deduction),
+      other_deductions: Number(record.other_deductions),
       notes: record.notes ?? "",
       create_income_transaction: !!record.income_id,
-      account_id: null, // User can select if re-linking
+      account_id: record.income?.account_id || null,
     };
   }
   return {
@@ -67,7 +69,7 @@ function buildDefaults(record?: SalaryRecord): SalaryRecordFormValues {
     other_deductions: 0,
     notes: "",
     create_income_transaction: true,
-    account_id: null,
+    account_id: defaultAccountId || null,
   };
 }
 
@@ -78,11 +80,15 @@ export function SalaryRecordForm({
   accounts,
   onSuccess,
 }: SalaryRecordFormProps) {
+  const defaultAcc = accounts.find((a) => (a as any).is_default) || accounts[0];
+  const defaultAccId = defaultAcc?.id || null;
+  const queryClient = useQueryClient();
+  const [quickAccountOpen, setQuickAccountOpen] = React.useState(false);
   const isEdit = !!record;
 
   const form = useForm<SalaryRecordFormValues>({
     resolver: zodResolver(salaryRecordSchema) as any,
-    defaultValues: buildDefaults(record),
+    defaultValues: buildDefaults(record, defaultAccId),
   });
 
   const isSubmitting = form.formState.isSubmitting;
@@ -101,33 +107,27 @@ export function SalaryRecordForm({
   const netSalary = grossSalary - watchPf - watchNps - watchTax - watchOther;
 
   React.useEffect(() => {
-    form.reset(buildDefaults(record));
-  }, [record, form]);
+    form.reset(buildDefaults(record, defaultAccId));
+  }, [record, form, defaultAccId]);
 
   const onSubmit = async (values: SalaryRecordFormValues) => {
-    // Standardize month to YYYY-MM-01
-    const finalValues = {
-      ...values,
-      month: values.month + "-01",
-    };
-
     const result = isEdit
-      ? await updateSalaryRecord(record!.id, finalValues)
-      : await createSalaryRecord(finalValues);
+      ? await updateSalaryRecord(record!.id, values)
+      : await createSalaryRecord(values);
 
     if (!result.ok) {
       toast.error(result.error ?? "Something went wrong");
       return;
     }
 
-    toast.success(isEdit ? "Payslip updated" : "Payslip recorded");
-    form.reset(buildDefaults(undefined));
+    toast.success(isEdit ? "Salary record updated" : "Salary record saved");
+    form.reset(buildDefaults(undefined, defaultAccId));
     onOpenChange(false);
     onSuccess?.();
   };
 
   const handleOpenChange = (next: boolean) => {
-    if (!next) form.reset(buildDefaults(record));
+    if (!next) form.reset(buildDefaults(record, defaultAccId));
     onOpenChange(next);
   };
 
@@ -385,21 +385,34 @@ export function SalaryRecordForm({
                     name="account_id"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Credit Account <span className="text-destructive">*</span></FormLabel>
-                        <Select value={field.value ?? undefined} onValueChange={field.onChange}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select bank account for credit" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {accounts.map((acc) => (
-                              <SelectItem key={acc.id} value={acc.id}>
-                                {acc.name} ({acc.type})
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <FormLabel>Credit Account (Optional)</FormLabel>
+                        <div className="flex gap-2">
+                          <Select value={field.value ?? undefined} onValueChange={field.onChange}>
+                            <FormControl className="flex-1">
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select bank account for credit">
+                                  {field.value ? accounts.find((acc) => acc.id === field.value)?.name : undefined}
+                                </SelectValue>
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {accounts.map((acc) => (
+                                <SelectItem key={acc.id} value={acc.id}>
+                                  {acc.name} ({acc.type})
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            className="shrink-0 border-dashed hover:border-primary hover:text-primary"
+                            onClick={() => setQuickAccountOpen(true)}
+                          >
+                            <Plus className="h-4 w-4" />
+                          </Button>
+                        </div>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -432,6 +445,15 @@ export function SalaryRecordForm({
           </Button>
         </div>
       </SheetContent>
+
+      <QuickAccountDialog
+        open={quickAccountOpen}
+        onOpenChange={setQuickAccountOpen}
+        onSuccess={(newAcc) => {
+          queryClient.invalidateQueries({ queryKey: ["accounts"] });
+          form.setValue("account_id", newAcc.id);
+        }}
+      />
     </Sheet>
   );
 }

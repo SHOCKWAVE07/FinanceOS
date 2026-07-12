@@ -84,11 +84,6 @@ const trackingNavItems = [
     icon: Target,
   },
   {
-    title: "Milestones",
-    href: ROUTES.MILESTONES,
-    icon: Flag,
-  },
-  {
     title: "Notes",
     href: ROUTES.NOTES,
     icon: StickyNote,

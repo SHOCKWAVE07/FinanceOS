@@ -9,8 +9,10 @@ import * as React from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { format } from "date-fns";
-import { CalendarIcon, Loader2 } from "lucide-react";
+import { CalendarIcon, Loader2, Plus } from "lucide-react";
 import { toast } from "sonner";
+import { useQueryClient } from "@tanstack/react-query";
+import { QuickAccountDialog } from "@/components/accounts/quick-account-dialog";
 
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -44,7 +46,7 @@ interface IncomeFormProps {
   currency?: string;
 }
 
-function buildDefaults(income?: IncomeWithRelations): IncomeFormValues {
+function buildDefaults(income?: IncomeWithRelations, defaultAccountId?: string | null): IncomeFormValues {
   if (income) {
     return {
       title: income.title,
@@ -65,7 +67,7 @@ function buildDefaults(income?: IncomeWithRelations): IncomeFormValues {
     date: format(new Date(), "yyyy-MM-dd"),
     currency: "INR",
     category_id: null,
-    account_id: null,
+    account_id: defaultAccountId || null,
     source: "",
     notes: "",
     tag_ids: [],
@@ -85,19 +87,24 @@ export function IncomeForm({
   onCategoryCreated,
   currency = "INR",
 }: IncomeFormProps) {
+  const queryClient = useQueryClient();
+  const [quickAccountOpen, setQuickAccountOpen] = React.useState(false);
   const isEdit = !!income;
+
+  const defaultAcc = accounts.find((a) => (a as any).is_default) || accounts[0];
+  const defaultAccId = defaultAcc?.id || null;
 
   const form = useForm<IncomeFormValues>({
     resolver: zodResolver(incomeSchema) as any,
-    defaultValues: buildDefaults(income),
+    defaultValues: buildDefaults(income, defaultAccId),
   });
 
   const isSubmitting = form.formState.isSubmitting;
   const watchAmount = form.watch("amount");
 
   React.useEffect(() => {
-    form.reset(buildDefaults(income));
-  }, [income, form]);
+    form.reset(buildDefaults(income, defaultAccId));
+  }, [income, form, defaultAccId]);
 
   const onSubmit = async (values: IncomeFormValues) => {
     const result = isEdit
@@ -110,13 +117,13 @@ export function IncomeForm({
     }
 
     toast.success(isEdit ? "Income updated" : "Income added");
-    form.reset(buildDefaults(undefined));
+    form.reset(buildDefaults(undefined, defaultAccId));
     onOpenChange(false);
     onSuccess?.();
   };
 
   const handleOpenChange = (next: boolean) => {
-    if (!next) form.reset(buildDefaults(income));
+    if (!next) form.reset(buildDefaults(income, defaultAccId));
     onOpenChange(next);
   };
 
@@ -276,6 +283,45 @@ export function IncomeForm({
                 )}
               />
 
+              {/* Account Selector */}
+              <FormField
+                control={form.control}
+                name="account_id"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Credit Account</FormLabel>
+                    <div className="flex gap-2">
+                      <Select value={field.value ?? undefined} onValueChange={field.onChange}>
+                        <FormControl className="flex-1">
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select bank/cash account">
+                              {field.value ? accounts.find((acc) => acc.id === field.value)?.name : undefined}
+                            </SelectValue>
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {accounts.map((acc) => (
+                            <SelectItem key={acc.id} value={acc.id}>
+                              {acc.name} ({acc.type})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="shrink-0 border-dashed hover:border-primary hover:text-primary"
+                        onClick={() => setQuickAccountOpen(true)}
+                      >
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
               {/* Source */}
               <FormField
                 control={form.control}
@@ -384,6 +430,15 @@ export function IncomeForm({
           </Button>
         </div>
       </SheetContent>
+
+      <QuickAccountDialog
+        open={quickAccountOpen}
+        onOpenChange={setQuickAccountOpen}
+        onSuccess={(newAcc) => {
+          queryClient.invalidateQueries({ queryKey: ["accounts"] });
+          form.setValue("account_id", newAcc.id);
+        }}
+      />
     </Sheet>
   );
 }

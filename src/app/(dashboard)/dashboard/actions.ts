@@ -37,6 +37,8 @@ export interface DashboardOverview {
   quick_goals: DashboardGoal[];
   net_worth: number;
   investments_value: number;
+  expense_bifurcation: { name: string; value: number }[];
+  salary_split: { name: string; value: number }[];
 }
 
 const CATEGORY_ICONS: Record<string, string> = {
@@ -78,10 +80,10 @@ export async function getDashboardOverview(): Promise<ActionResult<DashboardOver
 
     if (errAcc) throw errAcc;
 
-    // 2. Fetch Investments (Current Value)
+    // 2. Fetch Investments (Current & Invested Values)
     const { data: investments, error: errInv } = await (supabase as any)
       .from("investments")
-      .select("current_value")
+      .select("current_value, invested_amount, start_date")
       .eq("user_id", userId)
       .is("deleted_at", null);
 
@@ -91,51 +93,25 @@ export async function getDashboardOverview(): Promise<ActionResult<DashboardOver
     const totalInvestments = (investments || []).reduce((acc: number, cur: any) => acc + Number(cur.current_value || 0), 0);
     const currentNetWorth = totalCash + totalInvestments;
 
-    // 3. Fetch Incomes (Current Month)
+    // 3. Fetch Incomes (All Months)
     const { data: curIncomes, error: errCurInc } = await (supabase as any)
       .from("incomes")
       .select("id, title, amount, date, categories(name, slug)")
       .eq("user_id", userId)
-      .is("deleted_at", null)
-      .gte("date", curStart)
-      .lte("date", curEnd);
+      .is("deleted_at", null);
 
     if (errCurInc) throw errCurInc;
 
-    // 4. Fetch Incomes (Prev Month)
-    const { data: prevIncomes, error: errPrevInc } = await (supabase as any)
-      .from("incomes")
-      .select("amount")
-      .eq("user_id", userId)
-      .is("deleted_at", null)
-      .gte("date", prevStart)
-      .lte("date", prevEnd);
-
-    if (errPrevInc) throw errPrevInc;
-
-    // 5. Fetch Expenses (Current Month)
+    // 4. Fetch Expenses (All Months)
     const { data: curExpenses, error: errCurExp } = await (supabase as any)
       .from("expenses")
       .select("id, title, amount, date, categories(name, slug)")
       .eq("user_id", userId)
-      .is("deleted_at", null)
-      .gte("date", curStart)
-      .lte("date", curEnd);
+      .is("deleted_at", null);
 
     if (errCurExp) throw errCurExp;
 
-    // 6. Fetch Expenses (Prev Month)
-    const { data: prevExpenses, error: errPrevExp } = await (supabase as any)
-      .from("expenses")
-      .select("amount")
-      .eq("user_id", userId)
-      .is("deleted_at", null)
-      .gte("date", prevStart)
-      .lte("date", prevEnd);
-
-    if (errPrevExp) throw errPrevExp;
-
-    // 7. Fetch Active Goals
+    // 5. Fetch Active Goals
     const { data: goals, error: errGoals } = await (supabase as any)
       .from("goals")
       .select("id, name, target_amount, manual_savings, status")
@@ -146,22 +122,38 @@ export async function getDashboardOverview(): Promise<ActionResult<DashboardOver
 
     // Calculations
     const curIncSum = (curIncomes || []).reduce((acc: number, cur: any) => acc + Number(cur.amount || 0), 0);
-    const prevIncSum = (prevIncomes || []).reduce((acc: number, cur: any) => acc + Number(cur.amount || 0), 0);
-
     const curExpSum = (curExpenses || []).reduce((acc: number, cur: any) => acc + Number(cur.amount || 0), 0);
-    const prevExpSum = (prevExpenses || []).reduce((acc: number, cur: any) => acc + Number(cur.amount || 0), 0);
 
-    // Savings rates
+    // Calculate current month and previous month sums in memory for MoM trends
+    const thisMonthIncomes = (curIncomes || []).filter((inc: any) => inc.date >= curStart && inc.date <= curEnd);
+    const prevMonthIncomes = (curIncomes || []).filter((inc: any) => inc.date >= prevStart && inc.date <= prevEnd);
+
+    const thisMonthExpenses = (curExpenses || []).filter((exp: any) => exp.date >= curStart && exp.date <= curEnd);
+    const prevMonthExpenses = (curExpenses || []).filter((exp: any) => exp.date >= prevStart && exp.date <= prevEnd);
+
+    const thisMonthIncSum = thisMonthIncomes.reduce((acc: number, cur: any) => acc + Number(cur.amount || 0), 0);
+    const prevMonthIncSum = prevMonthIncomes.reduce((acc: number, cur: any) => acc + Number(cur.amount || 0), 0);
+
+    const thisMonthExpSum = thisMonthExpenses.reduce((acc: number, cur: any) => acc + Number(cur.amount || 0), 0);
+    const prevMonthExpSum = prevMonthExpenses.reduce((acc: number, cur: any) => acc + Number(cur.amount || 0), 0);
+
+    // MoM Percentages
+    const incomeMoM = prevMonthIncSum > 0 ? ((thisMonthIncSum - prevMonthIncSum) / prevMonthIncSum) * 100 : 0;
+    const expenseMoM = prevMonthExpSum > 0 ? ((thisMonthExpSum - prevMonthExpSum) / prevMonthExpSum) * 100 : 0;
+
+    // Savings rates (Cumulative)
     const curSavings = curIncSum - curExpSum;
     const curSavingsRate = curIncSum > 0 ? (curSavings / curIncSum) * 100 : 0;
 
-    const prevSavings = prevIncSum - prevExpSum;
-    const prevSavingsRate = prevIncSum > 0 ? (prevSavings / prevIncSum) * 100 : 0;
+    // Previous savings rate (Cumulative prior to current month)
+    const prevIncomesAllTime = (curIncomes || []).filter((inc: any) => inc.date < curStart);
+    const prevExpensesAllTime = (curExpenses || []).filter((exp: any) => exp.date < curStart);
+    const prevIncSumAllTime = prevIncomesAllTime.reduce((acc: number, cur: any) => acc + Number(cur.amount || 0), 0);
+    const prevExpSumAllTime = prevExpensesAllTime.reduce((acc: number, cur: any) => acc + Number(cur.amount || 0), 0);
+    const prevSavingsAllTime = prevIncSumAllTime - prevExpSumAllTime;
+    const prevSavingsRate = prevIncSumAllTime > 0 ? (prevSavingsAllTime / prevIncSumAllTime) * 100 : 0;
 
-    // MoM Percentages
-    const incomeMoM = prevIncSum > 0 ? ((curIncSum - prevIncSum) / prevIncSum) * 100 : 0;
-    const expenseMoM = prevExpSum > 0 ? ((curExpSum - prevExpSum) / prevExpSum) * 100 : 0;
-    const savingsRateMoM = curSavingsRate - prevSavingsRate; // Difference of rates represents improvement
+    const savingsRateMoM = curSavingsRate - prevSavingsRate;
 
     // Consolidation of Activities
     const listInc: DashboardActivity[] = (curIncomes || []).map((inc: any) => {
@@ -201,37 +193,79 @@ export async function getDashboardOverview(): Promise<ActionResult<DashboardOver
       color: GOAL_COLORS[idx % GOAL_COLORS.length],
     }));
 
+    // 6. Calculate Expense Bifurcation
+    const expenseMap: Record<string, number> = {};
+    (curExpenses || []).forEach((exp: any) => {
+      const catName = exp.categories?.name || "Other";
+      expenseMap[catName] = (expenseMap[catName] || 0) + Number(exp.amount || 0);
+    });
+    const expense_bifurcation = Object.entries(expenseMap)
+      .map(([name, value]) => ({
+        name,
+        value,
+      }))
+      .sort((a, b) => b.value - a.value);
+
+    // 7. Calculate Last Month Salary Split
+    const lastMonthSalaryIncome = (curIncomes || [])
+      .filter((inc: any) => inc.date >= prevStart && inc.date <= prevEnd && inc.categories?.slug === "salary")
+      .reduce((acc: number, cur: any) => acc + Number(cur.amount || 0), 0);
+
+    const totalLastMonthIncome = (curIncomes || [])
+      .filter((inc: any) => inc.date >= prevStart && inc.date <= prevEnd)
+      .reduce((acc: number, cur: any) => acc + Number(cur.amount || 0), 0);
+
+    const baseSalary = lastMonthSalaryIncome > 0 ? lastMonthSalaryIncome : (totalLastMonthIncome > 0 ? totalLastMonthIncome : 0);
+
+    const lastMonthExp = (curExpenses || [])
+      .filter((exp: any) => exp.date >= prevStart && exp.date <= prevEnd)
+      .reduce((acc: number, cur: any) => acc + Number(cur.amount || 0), 0);
+
+    const lastMonthInv = (investments || [])
+      .filter((inv: any) => inv.start_date >= prevStart && inv.start_date <= prevEnd)
+      .reduce((acc: number, cur: any) => acc + Number(cur.invested_amount || 0), 0);
+
+    const lastMonthSavings = Math.max(0, baseSalary - lastMonthExp - lastMonthInv);
+
+    const salary_split = [
+      { name: "Expenses", value: lastMonthExp },
+      { name: "Investments", value: lastMonthInv },
+      { name: "Savings", value: lastMonthSavings },
+    ];
+
     return {
       ok: true,
       data: {
         total_balance: {
           title: "Total Cash",
           value: totalCash,
-          change: prevIncSum > 0 ? ((totalCash - (totalCash - curSavings)) / (totalCash - curSavings)) * 100 : 0,
+          change: prevMonthIncSum > 0 ? ((totalCash - (totalCash - curSavings)) / (totalCash - curSavings)) * 100 : 0,
           description: "Across savings & credit accounts",
         },
         monthly_income: {
           title: "Monthly Income",
           value: curIncSum,
           change: incomeMoM,
-          description: "Credits this calendar month",
+          description: "Cumulative income across all months",
         },
         monthly_expenses: {
           title: "Monthly Expenses",
           value: curExpSum,
           change: expenseMoM,
-          description: "Debits this calendar month",
+          description: "Cumulative expenses across all months",
         },
         savings_rate: {
           title: "Savings Rate",
           value: curSavingsRate,
           change: savingsRateMoM,
-          description: "Current month savings margin",
+          description: "Cumulative savings margin",
         },
         recent_activity: recentActivity,
         quick_goals: quickGoals,
         net_worth: currentNetWorth,
         investments_value: totalInvestments,
+        expense_bifurcation,
+        salary_split,
       },
     };
   } catch (err: any) {

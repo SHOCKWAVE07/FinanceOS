@@ -24,6 +24,49 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency, formatPercentage, formatRelativeDate } from "@/lib/utils";
 import { getDashboardOverview, type DashboardOverview } from "@/app/(dashboard)/dashboard/actions";
+import { DashboardCharts } from "@/components/dashboard/dashboard-charts";
+
+const CircularProgress = ({ progress, color, icon: Icon }: { progress: number; color: string; icon: any }) => {
+  const radius = 18;
+  const stroke = 3.5;
+  const normalizedRadius = radius - stroke;
+  const circumference = normalizedRadius * 2 * Math.PI;
+  const strokeDashoffset = circumference - (Math.min(Math.max(progress, 0), 100) / 100) * circumference;
+
+  return (
+    <div className="relative flex items-center justify-center size-12 shrink-0">
+      <svg className="size-12 transform -rotate-90">
+        {/* Background Circle */}
+        <circle
+          stroke="var(--border)"
+          fill="transparent"
+          strokeWidth={stroke}
+          r={normalizedRadius}
+          cx={24}
+          cy={24}
+          className="text-border opacity-20"
+        />
+        {/* Progress Circle */}
+        <circle
+          stroke={color}
+          fill="transparent"
+          strokeWidth={stroke}
+          strokeDasharray={circumference + " " + circumference}
+          style={{ strokeDashoffset }}
+          strokeLinecap="round"
+          r={normalizedRadius}
+          cx={24}
+          cy={24}
+          className="transition-all duration-500 ease-out"
+        />
+      </svg>
+      {/* Icon in Center */}
+      <div className="absolute flex items-center justify-center">
+        <Icon className="size-4" style={{ color }} />
+      </div>
+    </div>
+  );
+};
 
 export default function DashboardPage() {
   const { data: response, isLoading, isError, refetch } = useQuery({
@@ -65,6 +108,8 @@ export default function DashboardPage() {
       description: "Across bank accounts",
       gradient: "from-blue-500 to-blue-600",
       isCurrency: true,
+      progress: overview.net_worth > 0 ? (overview.total_balance.value / overview.net_worth) * 100 : 0,
+      ringColor: "#3b82f6",
     },
     {
       title: "Monthly Income",
@@ -74,6 +119,8 @@ export default function DashboardPage() {
       description: "This calendar month",
       gradient: "from-emerald-500 to-emerald-600",
       isCurrency: true,
+      progress: Math.min((overview.monthly_income.value / 100000) * 100, 100),
+      ringColor: "#10b981",
     },
     {
       title: "Monthly Expenses",
@@ -83,6 +130,8 @@ export default function DashboardPage() {
       description: "This calendar month",
       gradient: "from-red-500 to-red-600",
       isCurrency: true,
+      progress: overview.monthly_income.value > 0 ? (overview.monthly_expenses.value / overview.monthly_income.value) * 100 : 0,
+      ringColor: "#ef4444",
     },
     {
       title: "Savings Rate",
@@ -93,7 +142,47 @@ export default function DashboardPage() {
       gradient: "from-violet-500 to-violet-600",
       isCurrency: false,
       suffix: "%",
+      progress: overview.savings_rate.value,
+      ringColor: "#8b5cf6",
     },
+  ];
+
+  const avgGoalProgress = overview.quick_goals.length > 0
+    ? overview.quick_goals.reduce((acc, g) => acc + (g.target > 0 ? (g.current / g.target) * 100 : 0), 0) / overview.quick_goals.length
+    : 0;
+
+  const quickStats = [
+    {
+      title: "Net Worth",
+      value: overview.net_worth,
+      icon: IndianRupee,
+      description: "Total assets valuation",
+      progress: 100,
+      ringColor: "#06b6d4",
+      gradient: "from-cyan-500 to-cyan-600",
+      isCurrency: true,
+    },
+    {
+      title: "Investments Value",
+      value: overview.investments_value,
+      icon: BarChart3,
+      description: "Allocation in assets",
+      progress: overview.net_worth > 0 ? (overview.investments_value / overview.net_worth) * 100 : 0,
+      ringColor: "#eab308",
+      gradient: "from-amber-500 to-amber-600",
+      isCurrency: true,
+    },
+    {
+      title: "Goals Progress",
+      value: overview.quick_goals.length,
+      suffix: " Active Goal" + (overview.quick_goals.length !== 1 ? "s" : ""),
+      icon: Target,
+      description: "Average goal completion",
+      progress: avgGoalProgress,
+      ringColor: "#ec4899",
+      gradient: "from-pink-500 to-pink-600",
+      isCurrency: false,
+    }
   ];
 
   return (
@@ -119,9 +208,7 @@ export default function DashboardPage() {
           <Card key={stat.title} className="relative overflow-hidden">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">{stat.title}</CardTitle>
-              <div className={`flex size-9 items-center justify-center rounded-lg bg-gradient-to-br ${stat.gradient} text-white shadow-sm`}>
-                <stat.icon className="size-4" />
-              </div>
+              <CircularProgress progress={stat.progress} color={stat.ringColor} icon={stat.icon} />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
@@ -146,6 +233,12 @@ export default function DashboardPage() {
           </Card>
         ))}
       </div>
+
+      {/* Charts Section */}
+      <DashboardCharts
+        expenseBifurcation={overview.expense_bifurcation}
+        salarySplit={overview.salary_split}
+      />
 
       {/* Bottom Section: Activity + Goals */}
       <div className="grid gap-6 lg:grid-cols-5">
@@ -203,24 +296,62 @@ export default function DashboardPage() {
                 No active savings goals set.
               </div>
             ) : (
-              <div className="space-y-6">
+              <div className="space-y-4">
                 {overview.quick_goals.map((goal) => {
                   const percentage = goal.target > 0 ? Math.round((goal.current / goal.target) * 100) : 0;
+                  const colorMap: Record<string, string> = {
+                    "bg-blue-500": "#3b82f6",
+                    "bg-emerald-500": "#10b981",
+                    "bg-red-500": "#ef4444",
+                    "bg-rose-500": "#f43f5e",
+                    "bg-violet-500": "#8b5cf6",
+                    "bg-amber-500": "#f59e0b",
+                    "bg-pink-500": "#ec4899",
+                  };
+                  const hexColor = colorMap[goal.color] || "#3b82f6";
+                  const radius = 14;
+                  const stroke = 2.5;
+                  const circumference = radius * 2 * Math.PI;
+                  const strokeDashoffset = circumference - (Math.min(percentage, 100) / 100) * circumference;
+
                   return (
-                    <div key={goal.id} className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium">{goal.name}</span>
-                        <span className="text-xs text-muted-foreground">{percentage}%</span>
+                    <div key={goal.id} className="flex items-center justify-between p-2 rounded-xl border border-border/40 hover:bg-muted/30 transition-colors">
+                      <div className="space-y-1">
+                        <span className="text-sm font-semibold text-foreground">{goal.name}</span>
+                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <span>{formatCurrency(goal.current)}</span>
+                          <span>/</span>
+                          <span>{formatCurrency(goal.target)}</span>
+                        </div>
                       </div>
-                      <div className="h-2 rounded-full bg-muted overflow-hidden">
-                        <div
-                          className={`h-full rounded-full ${goal.color} transition-all duration-500`}
-                          style={{ width: `${Math.min(percentage, 100)}%` }}
-                        />
-                      </div>
-                      <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span>{formatCurrency(goal.current)}</span>
-                        <span>{formatCurrency(goal.target)}</span>
+                      
+                      <div className="relative flex items-center justify-center size-12 shrink-0">
+                        <svg className="size-12 transform -rotate-90">
+                          <circle
+                            stroke="var(--border)"
+                            fill="transparent"
+                            strokeWidth={stroke}
+                            r={radius}
+                            cx={24}
+                            cy={24}
+                            className="opacity-20 text-border"
+                          />
+                          <circle
+                            stroke={hexColor}
+                            fill="transparent"
+                            strokeWidth={stroke}
+                            strokeDasharray={circumference + " " + circumference}
+                            style={{ strokeDashoffset }}
+                            strokeLinecap="round"
+                            r={radius}
+                            cx={24}
+                            cy={24}
+                            className="transition-all duration-500"
+                          />
+                        </svg>
+                        <span className="absolute text-[9px] font-bold font-mono" style={{ color: hexColor }}>
+                          {percentage}%
+                        </span>
                       </div>
                     </div>
                   );
@@ -233,45 +364,26 @@ export default function DashboardPage() {
 
       {/* Quick Stats Row */}
       <div className="grid gap-4 sm:grid-cols-3">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-4">
-              <div className="flex size-12 items-center justify-center rounded-xl bg-blue-500/10">
-                <IndianRupee className="size-6 text-blue-500" />
+        {quickStats.map((stat) => (
+          <Card key={stat.title} className="relative overflow-hidden">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">{stat.title}</CardTitle>
+              <CircularProgress progress={stat.progress} color={stat.ringColor} icon={stat.icon} />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                {stat.isCurrency
+                  ? formatCurrency(stat.value)
+                  : `${stat.value}${stat.suffix || ""}`}
               </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Net Worth</p>
-                <p className="text-xl font-bold">{formatCurrency(overview.net_worth)}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-4">
-              <div className="flex size-12 items-center justify-center rounded-xl bg-emerald-500/10">
-                <BarChart3 className="size-6 text-emerald-500" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Investments</p>
-                <p className="text-xl font-bold">{formatCurrency(overview.investments_value)}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-4">
-              <div className="flex size-12 items-center justify-center rounded-xl bg-violet-500/10">
-                <Target className="size-6 text-violet-500" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Goals Active</p>
-                <p className="text-xl font-bold">{overview.quick_goals.length} Goals</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+              <p className="text-xs text-muted-foreground mt-1">
+                {stat.description} ({stat.progress.toFixed(0)}% {stat.title === "Net Worth" ? "total" : stat.title === "Investments Value" ? "of net worth" : "avg progress"})
+              </p>
+            </CardContent>
+            {/* Decorative gradient line at top */}
+            <div className={`absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r ${stat.gradient}`} />
+          </Card>
+        ))}
       </div>
     </div>
   );

@@ -10,7 +10,9 @@ import * as React from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { format } from "date-fns";
-import { CalendarIcon, Loader2 } from "lucide-react";
+import { CalendarIcon, Loader2, Plus } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { QuickAccountDialog } from "@/components/accounts/quick-account-dialog";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -76,7 +78,7 @@ interface ExpenseFormProps {
 
 // ── Default values ───────────────────────────────
 
-function buildDefaults(expense?: ExpenseWithRelations): ExpenseFormValues {
+function buildDefaults(expense?: ExpenseWithRelations, defaultAccountId?: string | null): ExpenseFormValues {
   if (expense) {
     return {
       title: expense.title,
@@ -99,7 +101,7 @@ function buildDefaults(expense?: ExpenseWithRelations): ExpenseFormValues {
     date: format(new Date(), "yyyy-MM-dd"),
     currency: "INR",
     category_id: null,
-    account_id: null,
+    account_id: defaultAccountId || null,
     merchant: "",
     notes: "",
     tag_ids: [],
@@ -123,13 +125,18 @@ export function ExpenseForm({
   onCategoryCreated,
   currency = "INR",
 }: ExpenseFormProps) {
+  const queryClient = useQueryClient();
+  const [quickAccountOpen, setQuickAccountOpen] = React.useState(false);
   const isEdit = !!expense;
+
+  const defaultAcc = accounts.find((a) => (a as any).is_default) || accounts[0];
+  const defaultAccId = defaultAcc?.id || null;
 
   // zodResolver type compat: cast resolver to avoid RHF v7.80 / resolvers v5.4 dual-type issue
   const form = useForm<ExpenseFormValues>({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     resolver: zodResolver(expenseSchema) as any,
-    defaultValues: buildDefaults(expense),
+    defaultValues: buildDefaults(expense, defaultAccId),
   });
 
   const isSubmitting = form.formState.isSubmitting;
@@ -137,8 +144,8 @@ export function ExpenseForm({
   const watchDate = form.watch("date");
 
   React.useEffect(() => {
-    form.reset(buildDefaults(expense));
-  }, [expense, form]);
+    form.reset(buildDefaults(expense, defaultAccId));
+  }, [expense, form, defaultAccId]);
 
   // ── Submit ─────────────────────────────────────
   const onSubmit = async (values: ExpenseFormValues) => {
@@ -152,13 +159,13 @@ export function ExpenseForm({
     }
 
     toast.success(isEdit ? "Expense updated" : "Expense added");
-    form.reset(buildDefaults(undefined));
+    form.reset(buildDefaults(undefined, defaultAccId));
     onOpenChange(false);
     onSuccess?.();
   };
 
   const handleOpenChange = (next: boolean) => {
-    if (!next) form.reset(buildDefaults(expense));
+    if (!next) form.reset(buildDefaults(expense, defaultAccId));
     onOpenChange(next);
   };
 
@@ -339,6 +346,45 @@ export function ExpenseForm({
                 )}
               />
 
+              {/* ── Account ── */}
+              <FormField
+                control={form.control}
+                name="account_id"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Debit Account</FormLabel>
+                    <div className="flex gap-2">
+                      <Select value={field.value ?? undefined} onValueChange={field.onChange}>
+                        <FormControl className="flex-1">
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select bank/cash account">
+                              {field.value ? accounts.find((acc) => acc.id === field.value)?.name : undefined}
+                            </SelectValue>
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {accounts.map((acc) => (
+                            <SelectItem key={acc.id} value={acc.id}>
+                              {acc.name} ({acc.type})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="shrink-0 border-dashed hover:border-primary hover:text-primary"
+                        onClick={() => setQuickAccountOpen(true)}
+                      >
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
               {/* ── Tags ── */}
               <FormField
                 control={form.control}
@@ -492,6 +538,15 @@ export function ExpenseForm({
           </Button>
         </div>
       </SheetContent>
+
+      <QuickAccountDialog
+        open={quickAccountOpen}
+        onOpenChange={setQuickAccountOpen}
+        onSuccess={(newAcc) => {
+          queryClient.invalidateQueries({ queryKey: ["accounts"] });
+          form.setValue("account_id", newAcc.id);
+        }}
+      />
     </Sheet>
   );
 }

@@ -179,6 +179,21 @@ export async function createIncome(
     const parsed = incomeSchema.parse(raw);
     const { tag_ids, ...incomeFields } = parsed;
 
+    if (!incomeFields.account_id) {
+      const { data: defaultAcc } = await supabase
+        .from("accounts")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (defaultAcc) {
+        incomeFields.account_id = defaultAcc.id;
+      }
+    }
+
     const { data, error } = await supabase
       .from("incomes")
       .insert({ ...incomeFields, user_id: userId })
@@ -216,6 +231,21 @@ export async function updateIncome(
 
     const parsed = incomeSchema.parse(raw);
     const { tag_ids, ...incomeFields } = parsed;
+
+    if (!incomeFields.account_id) {
+      const { data: defaultAcc } = await supabase
+        .from("accounts")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (defaultAcc) {
+        incomeFields.account_id = defaultAcc.id;
+      }
+    }
 
     const { error } = await supabase
       .from("incomes")
@@ -364,6 +394,18 @@ export async function importIncomesCSV(
       .eq("user_id", userId);
     for (const t of existingTags ?? []) tagCache.set(t.name.toLowerCase(), t.id);
 
+    // Fetch default account ID for imported incomes
+    const { data: defaultAcc } = await supabase
+      .from("accounts")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    const defaultAccountId = defaultAcc?.id || null;
+
     for (let i = 0; i < rawRows.length; i++) {
       const rowNum = i + 2;
       const parseResult = csvIncomeImportRowSchema.safeParse(rawRows[i]);
@@ -424,6 +466,7 @@ export async function importIncomesCSV(
           date: row.Date,
           currency: row.Currency ?? "INR",
           category_id: categoryId,
+          account_id: defaultAccountId,
           source: row.Source ?? null,
           notes: row.Notes ?? null,
           is_recurring: row.Recurring ?? false,

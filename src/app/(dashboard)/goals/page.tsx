@@ -18,7 +18,7 @@ import { GoalGrid } from "@/components/goals/goal-grid";
 import { GoalForm } from "@/components/forms/goal-form";
 import { GoalDetailSheet } from "@/components/goals/goal-detail-sheet";
 
-import { getGoals, getGoalStats, deleteGoal, type GoalWithStats } from "@/app/(dashboard)/goals/actions";
+import { getGoals, getGoalStats, deleteGoal, updateGoal, type GoalWithStats } from "@/app/(dashboard)/goals/actions";
 
 export default function GoalsPage() {
   const queryClient = useQueryClient();
@@ -97,8 +97,33 @@ export default function GoalsPage() {
   };
 
   const handleDelete = (id: string) => {
-    if (confirm("Are you sure you want to delete this financial goal? All linked milestones will be deleted.")) {
+    if (confirm("Are you sure you want to delete this financial goal?")) {
       deleteMutation.mutate(id);
+    }
+  };
+
+  const handleToggleStatus = async (goal: GoalWithStats) => {
+    const newStatus = goal.status === "completed" ? "active" : "completed";
+    const result = await updateGoal(goal.id, {
+      name: goal.name,
+      description: goal.description || "",
+      target_amount: Number(goal.target_amount),
+      target_date: goal.target_date,
+      category: goal.category,
+      status: newStatus,
+      priority: goal.priority,
+      manual_savings: Number(goal.manual_savings || 0),
+      linkedInvestments: goal.linked_investments.map(li => ({
+        investmentId: li.id,
+        allocatedShare: li.allocated_share
+      }))
+    });
+    if (result.ok) {
+      toast.success(`Goal marked as ${newStatus}`);
+      queryClient.invalidateQueries({ queryKey: ["goals"] });
+      queryClient.invalidateQueries({ queryKey: ["goal-stats"] });
+    } else {
+      toast.error(result.error || "Failed to update goal");
     }
   };
 
@@ -180,6 +205,7 @@ export default function GoalsPage() {
           onEdit={handleEdit}
           onDelete={handleDelete}
           onViewDetails={handleViewDetails}
+          onToggleStatus={handleToggleStatus}
         />
       )}
 
@@ -196,6 +222,7 @@ export default function GoalsPage() {
         onOpenChange={setDetailOpen}
         goal={detailGoal}
         onSuccess={handleFormSuccess}
+        onToggleStatus={handleToggleStatus}
       />
     </div>
   );

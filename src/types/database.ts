@@ -460,6 +460,7 @@ export interface SalaryAppraisalUpdate {
 export interface Investment {
   id: string;
   user_id: string;
+  account_id: string | null;
   name: string;
   type: 'mutual_fund' | 'stock' | 'crypto' | 'gold' | 'fixed_deposit' | 'ppf' | 'nps' | 'real_estate' | 'other';
   institution: string;
@@ -477,6 +478,7 @@ export interface Investment {
 
 export interface InvestmentInsert {
   user_id: string;
+  account_id?: string | null;
   name: string;
   type: 'mutual_fund' | 'stock' | 'crypto' | 'gold' | 'fixed_deposit' | 'ppf' | 'nps' | 'real_estate' | 'other';
   institution: string;
@@ -490,6 +492,7 @@ export interface InvestmentInsert {
 }
 
 export interface InvestmentUpdate {
+  account_id?: string | null;
   name?: string;
   type?: 'mutual_fund' | 'stock' | 'crypto' | 'gold' | 'fixed_deposit' | 'ppf' | 'nps' | 'real_estate' | 'other';
   institution?: string;

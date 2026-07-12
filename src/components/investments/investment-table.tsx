@@ -16,6 +16,7 @@ import type { Investment } from "@/types/database";
 
 interface InvestmentTableProps {
   data: Investment[];
+  categories?: any[];
   onEdit: (investment: Investment) => void;
   onDelete: (id: string) => void;
   onViewHistory: (investment: Investment) => void;
@@ -24,6 +25,7 @@ interface InvestmentTableProps {
 
 export function InvestmentTable({
   data,
+  categories = [],
   onEdit,
   onDelete,
   onViewHistory,
@@ -39,18 +41,6 @@ export function InvestmentTable({
     nps: "NPS",
     real_estate: "Real Estate",
     other: "Other",
-  };
-
-  const TYPE_COLORS: Record<string, string> = {
-    mutual_fund: "bg-blue-500/10 text-blue-500 border-blue-500/20",
-    stock: "bg-emerald-500/10 text-emerald-500 border-emerald-500/20",
-    crypto: "bg-amber-500/10 text-amber-500 border-amber-500/20",
-    gold: "bg-yellow-500/10 text-yellow-500 border-yellow-500/20",
-    fixed_deposit: "bg-purple-500/10 text-purple-500 border-purple-500/20",
-    ppf: "bg-pink-500/10 text-pink-500 border-pink-500/20",
-    nps: "bg-orange-500/10 text-orange-500 border-orange-500/20",
-    real_estate: "bg-cyan-500/10 text-cyan-500 border-cyan-500/20",
-    other: "bg-slate-500/10 text-slate-500 border-slate-500/20",
   };
 
   return (
@@ -76,6 +66,11 @@ export function InvestmentTable({
               const returnsPct = invested > 0 ? (returns / invested) * 100 : 0;
               const isProfit = returns >= 0;
 
+              const category = categories.find((c) => c.slug === item.type);
+              const label = category ? category.name : (TYPE_LABELS[item.type] ?? item.type);
+              const icon = category?.icon;
+              const color = category?.color || "#64748b";
+
               return (
                 <TableRow key={item.id}>
                   <TableCell>
@@ -87,8 +82,17 @@ export function InvestmentTable({
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge variant="outline" className={`text-[10px] ${TYPE_COLORS[item.type]}`}>
-                      {TYPE_LABELS[item.type] ?? item.type}
+                    <Badge 
+                      variant="outline" 
+                      className="text-[10px] font-medium"
+                      style={{
+                        backgroundColor: `${color}10`,
+                        color: color,
+                        borderColor: `${color}20`
+                      }}
+                    >
+                      {icon && <span className="mr-1">{icon}</span>}
+                      {label}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">{item.institution}</TableCell>

@@ -20,10 +20,53 @@ import { ValuationForm } from "@/components/forms/valuation-form";
 import { InvestmentDetailSheet } from "@/components/investments/investment-detail-sheet";
 
 import { getInvestments, getInvestmentStats, deleteInvestment } from "@/app/(dashboard)/investments/actions";
+import { createClient } from "@/lib/supabase/client";
 import type { Investment } from "@/types/database";
 
 export default function InvestmentsPage() {
   const queryClient = useQueryClient();
+
+  // Fetch accounts list
+  const { data: accounts = [] } = useQuery({
+    queryKey: ["accounts"],
+    queryFn: async () => {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Unauthorized");
+
+      const { data, error } = await supabase
+        .from("accounts")
+        .select("*")
+        .eq("user_id", user.id)
+        .eq("is_active", true)
+        .order("name", { ascending: true });
+
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  // Fetch investment categories list
+  const { data: categories = [] } = useQuery({
+    queryKey: ["investment-categories"],
+    queryFn: async () => {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Unauthorized");
+
+      const { data, error } = await supabase
+        .from("categories")
+        .select("*")
+        .eq("user_id", user.id)
+        .eq("type", "investment")
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true })
+        .order("name", { ascending: true });
+
+      if (error) throw error;
+      return data;
+    },
+  });
 
   // Search & Filter State
   const [search, setSearch] = React.useState("");
@@ -140,6 +183,7 @@ export default function InvestmentsPage() {
         type={type}
         onTypeChange={setType}
         onClear={clearFilters}
+        categories={categories}
       />
 
       {/* Asset Grid / Table */}
@@ -152,6 +196,7 @@ export default function InvestmentsPage() {
       ) : (
         <InvestmentTable
           data={holdings}
+          categories={categories}
           onEdit={handleEdit}
           onDelete={handleDelete}
           onViewHistory={handleViewHistory}
@@ -164,6 +209,8 @@ export default function InvestmentsPage() {
         open={formOpen}
         onOpenChange={setFormOpen}
         investment={selectedItem}
+        accounts={accounts}
+        categories={categories}
         onSuccess={handleFormSuccess}
       />
 
@@ -171,6 +218,7 @@ export default function InvestmentsPage() {
         open={valOpen}
         onOpenChange={setValOpen}
         investment={valItem}
+        accounts={accounts}
         onSuccess={handleFormSuccess}
       />
 

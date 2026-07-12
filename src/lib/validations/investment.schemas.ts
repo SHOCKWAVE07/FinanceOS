@@ -16,19 +16,7 @@ export const investmentSchema = z.object({
     .max(100)
     .trim(),
   
-  type: z.enum([
-    "mutual_fund",
-    "stock",
-    "crypto",
-    "gold",
-    "fixed_deposit",
-    "ppf",
-    "nps",
-    "real_estate",
-    "other",
-  ], {
-    message: "Asset type is required",
-  }),
+  type: z.string().min(1, "Asset type is required"),
   
   institution: z
     .string()
@@ -55,6 +43,8 @@ export const investmentSchema = z.object({
     
   currency: z.string().default("INR"),
   
+  account_id: z.string().uuid("Invalid account").nullable().optional(),
+  
   start_date: isoDate.default(() => new Date().toISOString().split("T")[0]),
   
   notes: z.string().max(2000).trim().nullable().optional(),
@@ -64,6 +54,14 @@ export const valuationSchema = z.object({
   valuation_date: isoDate.default(() => new Date().toISOString().split("T")[0]),
   value: nonNegativeAmount,
   invested_amount: nonNegativeAmount,
+});
+
+export const adjustmentSchema = z.object({
+  date: isoDate.default(() => new Date().toISOString().split("T")[0]),
+  type: z.enum(["add", "subtract"]),
+  amount: z.coerce.number().positive("Amount must be positive"),
+  account_id: z.string().uuid("Invalid account").nullable().optional(),
+  sync_ledger: z.boolean().default(true).optional(),
 });
 
 export const investmentFiltersSchema = z.object({
@@ -79,4 +77,5 @@ export const investmentFiltersSchema = z.object({
 
 export type InvestmentFormValues = z.infer<typeof investmentSchema>;
 export type ValuationFormValues = z.infer<typeof valuationSchema>;
+export type AdjustmentFormValues = z.infer<typeof adjustmentSchema>;
 export type InvestmentFiltersFormValues = z.infer<typeof investmentFiltersSchema>;

@@ -143,6 +143,28 @@ export function CategoryCombobox({
             {/* Parent categories and their children */}
             {parents.map((parent) => {
               const subs = children.filter((c) => c.parent_id === parent.id);
+              if (subs.length === 0) {
+                return (
+                  <CommandItem
+                    key={parent.id}
+                    value={parent.name}
+                    onSelect={() => {
+                      onChange(parent.id);
+                      setOpen(false);
+                    }}
+                  >
+                    <Check
+                      className={cn(
+                        "mr-2 h-4 w-4",
+                        value === parent.id ? "opacity-100" : "opacity-0"
+                      )}
+                    />
+                    <span className="mr-2">{parent.icon}</span>
+                    <span>{parent.name}</span>
+                  </CommandItem>
+                );
+              }
+
               return (
                 <CommandGroup key={parent.id} heading={`${parent.icon ?? ""} ${parent.name}`}>
                   {/* Parent itself is selectable */}

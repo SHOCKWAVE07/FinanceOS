@@ -27,6 +27,7 @@ import type {
   RecurringRule,
   Category,
   Account,
+  AccountType,
   Tag,
 } from "@/types/database";
 
@@ -128,11 +129,16 @@ export async function getExpenses(
     if (error) throw error;
 
     // Flatten nested tag join: expense_tags[].tag → Tag[]
-    const normalised = (data ?? []).map((row) => ({
-      ...row,
-      tags: (row.tags as unknown as { tag: { id: string; name: string; color: string | null } }[])
-        .map((t) => t.tag),
-    })) as ExpenseWithRelations[];
+    const normalised = (data ?? []).map((row) => {
+      const rawTags = Array.isArray(row.tags) ? row.tags : [];
+      const tags = rawTags
+        .map((t: any) => t?.tag)
+        .filter((tag: any): tag is { id: string; name: string; color: string | null } => !!tag);
+      return {
+        ...row,
+        tags,
+      };
+    }) as ExpenseWithRelations[];
 
     const total = count ?? 0;
     return {
@@ -204,6 +210,21 @@ export async function createExpense(
     const parsed = expenseSchema.parse(raw);
     const { tag_ids, ...expenseFields } = parsed;
 
+    if (!expenseFields.account_id) {
+      const { data: defaultAcc } = await supabase
+        .from("accounts")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (defaultAcc) {
+        expenseFields.account_id = defaultAcc.id;
+      }
+    }
+
     const { data, error } = await supabase
       .from("expenses")
       .insert({ ...expenseFields, user_id: userId })
@@ -244,6 +265,21 @@ export async function updateExpense(
 
     const parsed = expenseSchema.parse(raw);
     const { tag_ids, ...expenseFields } = parsed;
+
+    if (!expenseFields.account_id) {
+      const { data: defaultAcc } = await supabase
+        .from("accounts")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (defaultAcc) {
+        expenseFields.account_id = defaultAcc.id;
+      }
+    }
 
     const { error } = await supabase
       .from("expenses")
@@ -332,10 +368,25 @@ export async function createRecurringRule(
     const { supabase, userId } = await requireAuth();
     const parsed = recurringRuleSchema.parse(raw);
 
+    let accountId = parsed.account_id;
+    if (!accountId) {
+      const { data: defaultAcc } = await supabase
+        .from("accounts")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      accountId = defaultAcc?.id || null;
+    }
+
     const { data, error } = await supabase
       .from("recurring_rules")
       .insert({
         ...parsed,
+        account_id: accountId,
         user_id: userId,
         next_due_date: parsed.start_date,
       })
@@ -359,9 +410,26 @@ export async function updateRecurringRule(
     const { supabase, userId } = await requireAuth();
     const parsed = recurringRuleSchema.parse(raw);
 
+    let accountId = parsed.account_id;
+    if (!accountId) {
+      const { data: defaultAcc } = await supabase
+        .from("accounts")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      accountId = defaultAcc?.id || null;
+    }
+
     const { error } = await supabase
       .from("recurring_rules")
-      .update(parsed)
+      .update({
+        ...parsed,
+        account_id: accountId,
+      })
       .eq("id", id)
       .eq("user_id", userId);
 
@@ -420,6 +488,18 @@ export async function processRecurringExpenses(): Promise<ActionResult<{ created
 
     if (error) throw error;
 
+    // Fetch default account ID in case rule has none
+    const { data: defaultAcc } = await supabase
+      .from("accounts")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    const defaultAccountId = defaultAcc?.id || null;
+
     let created = 0;
     for (const rule of dueRules as RecurringRule[]) {
       // Insert expense from rule
@@ -430,7 +510,7 @@ export async function processRecurringExpenses(): Promise<ActionResult<{ created
         currency: rule.currency,
         date: rule.next_due_date,
         category_id: rule.category_id,
-        account_id: rule.account_id,
+        account_id: rule.account_id || defaultAccountId,
         notes: rule.notes,
         merchant: rule.merchant,
         recurring_rule_id: rule.id,
@@ -469,26 +549,26 @@ export async function exportExpensesCSV(
 
     const rows = result.data.data;
 
-    const escape = (val: string) =>
-      val.includes(",") || val.includes('"') || val.includes("\n")
-        ? `"${val.replace(/"/g, '""')}"`
-        : val;
+    const escape = (val: any) => {
+      const str = String(val ?? "");
+      return str.includes(",") || str.includes('"') || str.includes("\n")
+        ? `"${str.replace(/"/g, '""')}"`
+        : str;
+    };
 
     const header = CSV_EXPORT_HEADERS.join(",");
 
     const lines = rows.map((e) => {
       const cols = [
-        e.date,
+        e.date || "",
         escape(e.title),
-        e.amount.toString(),
-        e.currency,
+        (e.amount ?? 0).toString(),
+        e.currency || "INR",
         escape(e.category?.name ?? ""),
-        escape(e.account?.name ?? ""),
-        escape(e.merchant ?? ""),
-        escape(e.tags.map((t) => t.name).join(",")),
+        escape((e.tags || []).map((t) => t?.name || "").join(",")),
         escape(e.notes ?? ""),
-        e.is_recurring.toString(),
-        e.is_reimbursable.toString(),
+        (e.is_recurring ?? false).toString(),
+        (e.is_reimbursable ?? false).toString(),
       ];
       return cols.join(",");
     });
@@ -540,6 +620,18 @@ export async function importExpensesCSV(
       .select("id, name")
       .eq("user_id", userId);
     for (const t of existingTags ?? []) tagCache.set(t.name.toLowerCase(), t.id);
+
+    // Fetch default account ID for imported expenses
+    const { data: defaultAcc } = await supabase
+      .from("accounts")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    const defaultAccountId = defaultAcc?.id || null;
 
     for (let i = 0; i < rawRows.length; i++) {
       const rowNum = i + 2; // 1-indexed, row 1 = header
@@ -601,6 +693,7 @@ export async function importExpensesCSV(
           date: row.Date,
           currency: row.Currency ?? "INR",
           category_id: categoryId,
+          account_id: defaultAccountId,
           merchant: null,
           notes: row.Notes ?? null,
           is_recurring: row.Recurring ?? false,
@@ -995,6 +1088,136 @@ export async function toggleRecurringRuleActive(id: string, is_active: boolean):
 
     if (error) throw error;
     revalidatePath("/expenses/recurring");
+    return { ok: true, data: undefined };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+export async function createAccount(payload: {
+  name: string;
+  type: AccountType;
+  institution?: string | null;
+  balance: number;
+}): Promise<ActionResult<Account>> {
+  try {
+    const { supabase, userId } = await requireAuth();
+    
+    // Create the account with balance = 0 and initial_balance = 0
+    const { data: account, error } = await supabase
+      .from("accounts")
+      .insert({
+        user_id: userId,
+        name: payload.name,
+        type: payload.type,
+        institution: payload.institution || null,
+        balance: 0,
+        initial_balance: 0,
+        currency: "INR",
+        is_active: true,
+      })
+      .select("*")
+      .single();
+
+    if (error) throw error;
+
+    // If starting balance is greater than 0, create an income transaction for it
+    if (payload.balance > 0) {
+      // Find or create "Initial Balance" category
+      let categoryId: string | null = null;
+      const { data: cat } = await supabase
+        .from("categories")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("type", "income")
+        .eq("slug", "initial-balance")
+        .maybeSingle();
+
+      if (cat) {
+        categoryId = cat.id;
+      } else {
+        const { data: newCat, error: catErr } = await supabase
+          .from("categories")
+          .insert({
+            user_id: userId,
+            name: "Initial Balance",
+            slug: "initial-balance",
+            type: "income",
+            icon: "Wallet",
+            color: "hsl(215, 60%, 50%)"
+          })
+          .select("id")
+          .single();
+        if (!catErr && newCat) {
+          categoryId = newCat.id;
+        }
+      }
+
+      const { error: incErr } = await supabase
+        .from("incomes")
+        .insert({
+          user_id: userId,
+          title: `Initial Balance - ${payload.name}`,
+          amount: payload.balance,
+          date: new Date().toISOString().split("T")[0],
+          category_id: categoryId,
+          account_id: account.id,
+          source: "System",
+          notes: `Starting balance for account "${payload.name}"`,
+          is_recurring: false
+        });
+
+      if (incErr) throw incErr;
+    }
+
+    // Fetch updated account to return with correct balance
+    const { data: updatedAccount, error: fetchErr } = await supabase
+      .from("accounts")
+      .select("*")
+      .eq("id", account.id)
+      .single();
+
+    if (fetchErr) throw fetchErr;
+
+    revalidatePath("/dashboard");
+    revalidatePath("/salary");
+    revalidatePath("/expenses");
+    revalidatePath("/income");
+    revalidatePath("/investments");
+    return { ok: true, data: updatedAccount as Account };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+export async function setDefaultAccount(accountId: string): Promise<ActionResult> {
+  try {
+    const { supabase, userId } = await requireAuth();
+
+    // Reset default status for all active accounts first
+    const { error: clearError } = await supabase
+      .from("accounts")
+      .update({ is_default: false })
+      .eq("user_id", userId);
+
+    if (clearError) throw clearError;
+
+    // Set default status on selected account
+    const { error: setError } = await supabase
+      .from("accounts")
+      .update({ is_default: true })
+      .eq("id", accountId)
+      .eq("user_id", userId);
+
+    if (setError) throw setError;
+
+    revalidatePath("/dashboard");
+    revalidatePath("/salary");
+    revalidatePath("/expenses");
+    revalidatePath("/income");
+    revalidatePath("/investments");
+    revalidatePath("/settings");
+
     return { ok: true, data: undefined };
   } catch (err) {
     return { ok: false, error: (err as Error).message };

@@ -94,49 +94,37 @@ export function GoalStats({ stats }: GoalStatsProps) {
           </CardContent>
         </Card>
 
-        {/* Next Milestone */}
+        {/* Completed Goals */}
         <Card className="border-border bg-card/50 backdrop-blur-sm">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Next Milestone
+              Completed Goals
             </CardTitle>
-            <Flag className="h-4 w-4 text-amber-500" />
+            <Award className="h-4 w-4 text-emerald-500" />
           </CardHeader>
           <CardContent className="pt-2">
-            {stats.upcomingMilestones.length > 0 ? (
-              <div className="space-y-1">
-                <div className="text-sm font-semibold truncate text-foreground">
-                  {stats.upcomingMilestones[0].milestoneName}
-                </div>
-                <p className="text-[10px] text-muted-foreground truncate">
-                  Goal: {stats.upcomingMilestones[0].goalName}
-                </p>
-                <div className="flex items-center gap-1 text-[10px] text-amber-500 font-mono mt-1">
-                  <Calendar className="h-3 w-3" />
-                  {format(new Date(stats.upcomingMilestones[0].targetDate), "dd MMM yyyy")}
-                </div>
-              </div>
-            ) : (
-              <div className="text-xs text-muted-foreground pt-1">
-                No upcoming milestones scheduled.
-              </div>
-            )}
+            <div className="text-2xl font-bold font-mono">
+              {stats.completedGoalsCount} <span className="text-xs font-normal text-muted-foreground">goals</span>
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-1">
+              {stats.totalGoalsCount > 0 ? ((stats.completedGoalsCount / stats.totalGoalsCount) * 100).toFixed(0) : 0}% success rate
+            </p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Allocation & Roadmaps */}
+      {/* Allocation */}
       {chartData.length > 0 && (
-        <div className="grid gap-4 md:grid-cols-3">
-          <Card className="md:col-span-2 border-border bg-card/50 backdrop-blur-sm">
+        <div className="grid gap-4 md:grid-cols-1">
+          <Card className="border-border bg-card/50 backdrop-blur-sm">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-bold">Goal Category Allocations</CardTitle>
               <CardDescription className="text-xs">
                 Current accumulated net worth allocated to goals by category.
               </CardDescription>
             </CardHeader>
-            <CardContent className="flex flex-col sm:flex-row items-center justify-around gap-4">
-              <div className="h-[180px] w-[180px]">
+            <CardContent className="flex flex-col sm:flex-row items-center justify-around gap-4 py-6">
+              <div className="h-[200px] w-[200px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
@@ -145,8 +133,8 @@ export function GoalStats({ stats }: GoalStatsProps) {
                       nameKey="name"
                       cx="50%"
                       cy="50%"
-                      innerRadius={45}
-                      outerRadius={70}
+                      innerRadius={55}
+                      outerRadius={80}
                       paddingAngle={3}
                     >
                       {chartData.map((entry, index) => (
@@ -165,11 +153,11 @@ export function GoalStats({ stats }: GoalStatsProps) {
                   </PieChart>
                 </ResponsiveContainer>
               </div>
-              <div className="flex flex-col gap-2 max-h-[180px] overflow-y-auto w-full sm:w-auto pr-2">
+              <div className="flex flex-col gap-3 max-h-[200px] overflow-y-auto w-full sm:w-auto pr-2 min-w-[200px]">
                 {chartData.map((entry, index) => {
                   const percent = stats.totalSavedAmount > 0 ? (entry.value / stats.totalSavedAmount) * 100 : 0;
                   return (
-                    <div key={`legend-${index}`} className="flex items-center justify-between gap-4 text-xs">
+                    <div key={`legend-${index}`} className="flex items-center justify-between gap-6 text-xs border-b border-border/50 pb-1.5 last:border-0 last:pb-0">
                       <div className="flex items-center gap-2">
                         <div className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: entry.color }} />
                         <span className="text-muted-foreground">{entry.name}</span>
@@ -180,37 +168,6 @@ export function GoalStats({ stats }: GoalStatsProps) {
                     </div>
                   );
                 })}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Upcoming Milestone list card */}
-          <Card className="border-border bg-card/50 backdrop-blur-sm">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-bold flex items-center gap-1.5">
-                <Award className="h-4 w-4 text-primary" /> Roadmap Milestones
-              </CardTitle>
-              <CardDescription className="text-xs">
-                Upcoming target milestones across all goals.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="pt-2">
-              <div className="space-y-3">
-                {stats.upcomingMilestones.length > 0 ? (
-                  stats.upcomingMilestones.slice(0, 4).map((m) => (
-                    <div key={m.milestoneId} className="flex flex-col gap-0.5 rounded-lg border border-border bg-muted/10 p-2 text-xs">
-                      <div className="font-semibold text-foreground truncate">{m.milestoneName}</div>
-                      <div className="text-[10px] text-muted-foreground truncate">Goal: {m.goalName}</div>
-                      <div className="text-[10px] text-amber-500 font-mono mt-1">
-                        Due: {format(new Date(m.targetDate), "dd MMM yyyy")}
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <div className="h-32 flex items-center justify-center text-xs text-muted-foreground text-center">
-                    All milestones completed!<br />Time to define new targets.
-                  </div>
-                )}
               </div>
             </CardContent>
           </Card>

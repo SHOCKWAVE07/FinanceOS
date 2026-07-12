@@ -67,6 +67,9 @@ export async function createSalaryRecord(
     const { supabase, userId } = await requireAuth();
     const parsed = salaryRecordSchema.parse(raw);
 
+    // Fetch old sums before inserting new record
+    const { pf: oldPfSum, nps: oldNpsSum } = await getExistingDeductionsSum(supabase, userId);
+
     // Calculate gross & net salary
     const gross = parsed.basic + parsed.hra + parsed.special_allowance + parsed.lta;
     const net = gross - parsed.pf_deduction - parsed.nps_deduction - parsed.tax_deduction - parsed.other_deductions;
@@ -74,7 +77,7 @@ export async function createSalaryRecord(
     let incomeId: string | null = null;
 
     // 1. If checked, create corresponding Income Transaction
-    if (parsed.create_income_transaction && parsed.account_id) {
+    if (parsed.create_income_transaction) {
       // Find or create "Salary" category for incomes
       let salaryCategoryId: string | null = null;
       const { data: cat } = await supabase
@@ -110,6 +113,31 @@ export async function createSalaryRecord(
       const dateObj = new Date(parsed.month);
       const monthLabel = dateObj.toLocaleString("default", { month: "long", year: "numeric" });
 
+      let targetAccountId = parsed.account_id;
+      if (!targetAccountId) {
+        const { data: defaultAcc } = await supabase
+          .from("accounts")
+          .select("id")
+          .eq("user_id", userId)
+          .eq("is_active", true)
+          .eq("is_default", true)
+          .maybeSingle();
+        if (defaultAcc) {
+          targetAccountId = defaultAcc.id;
+        } else {
+          const { data: fallbackAcc } = await supabase
+            .from("accounts")
+            .select("id")
+            .eq("user_id", userId)
+            .eq("is_active", true)
+            .order("sort_order", { ascending: true })
+            .order("created_at", { ascending: true })
+            .limit(1)
+            .maybeSingle();
+          if (fallbackAcc) targetAccountId = fallbackAcc.id;
+        }
+      }
+
       const { data: newIncome, error: incErr } = await supabase
         .from("incomes")
         .insert({
@@ -118,7 +146,7 @@ export async function createSalaryRecord(
           amount: net,
           date: parsed.month,
           category_id: salaryCategoryId,
-          account_id: parsed.account_id,
+          account_id: targetAccountId,
           source: parsed.company,
           notes: `Generated automatically from payslip entry. Designation: ${parsed.designation}.`,
           is_recurring: false,
@@ -163,7 +191,7 @@ export async function createSalaryRecord(
     }
 
     // Sync PF and NPS deductions to investments module
-    await syncSalaryDeductionsToInvestments(supabase, userId);
+    await syncSalaryDeductionsToInvestments(supabase, userId, oldPfSum, oldNpsSum);
 
     revalidatePath("/salary");
     revalidatePath("/income");
@@ -182,6 +210,9 @@ export async function updateSalaryRecord(
     const { supabase, userId } = await requireAuth();
     const parsed = salaryRecordSchema.parse(raw);
 
+    // Fetch old sums before updating record
+    const { pf: oldPfSum, nps: oldNpsSum } = await getExistingDeductionsSum(supabase, userId);
+
     // Fetch original to check linked income
     const { data: orig, error: origErr } = await supabase
       .from("salary_records")
@@ -198,9 +229,34 @@ export async function updateSalaryRecord(
     let linkedIncomeId = orig.income_id;
 
     // Handle updates to linked income
-    if (parsed.create_income_transaction && parsed.account_id) {
+    if (parsed.create_income_transaction) {
       const dateObj = new Date(parsed.month);
       const monthLabel = dateObj.toLocaleString("default", { month: "long", year: "numeric" });
+
+      let targetAccountId = parsed.account_id;
+      if (!targetAccountId) {
+        const { data: defaultAcc } = await supabase
+          .from("accounts")
+          .select("id")
+          .eq("user_id", userId)
+          .eq("is_active", true)
+          .eq("is_default", true)
+          .maybeSingle();
+        if (defaultAcc) {
+          targetAccountId = defaultAcc.id;
+        } else {
+          const { data: fallbackAcc } = await supabase
+            .from("accounts")
+            .select("id")
+            .eq("user_id", userId)
+            .eq("is_active", true)
+            .order("sort_order", { ascending: true })
+            .order("created_at", { ascending: true })
+            .limit(1)
+            .maybeSingle();
+          if (fallbackAcc) targetAccountId = fallbackAcc.id;
+        }
+      }
 
       if (linkedIncomeId) {
         // Update existing income
@@ -210,7 +266,7 @@ export async function updateSalaryRecord(
             title: `Salary - ${monthLabel}`,
             amount: net,
             date: parsed.month,
-            account_id: parsed.account_id,
+            account_id: targetAccountId,
             source: parsed.company,
             notes: `Generated automatically from payslip entry. Designation: ${parsed.designation}.`,
           })
@@ -254,7 +310,7 @@ export async function updateSalaryRecord(
             amount: net,
             date: parsed.month,
             category_id: salaryCategoryId,
-            account_id: parsed.account_id,
+            account_id: targetAccountId,
             source: parsed.company,
             notes: `Generated automatically from payslip entry. Designation: ${parsed.designation}.`,
             is_recurring: false,
@@ -297,7 +353,7 @@ export async function updateSalaryRecord(
     if (recErr) throw recErr;
 
     // Sync PF and NPS deductions to investments module
-    await syncSalaryDeductionsToInvestments(supabase, userId);
+    await syncSalaryDeductionsToInvestments(supabase, userId, oldPfSum, oldNpsSum);
 
     revalidatePath("/salary");
     revalidatePath("/income");
@@ -327,6 +383,9 @@ export async function deleteSalaryRecord(id: string): Promise<ActionResult> {
       await supabase.from("incomes").delete().eq("id", record.income_id).eq("user_id", userId);
     }
 
+    // Fetch old sums before deleting record
+    const { pf: oldPfSum, nps: oldNpsSum } = await getExistingDeductionsSum(supabase, userId);
+
     // Delete Salary Record
     const { error } = await supabase
       .from("salary_records")
@@ -337,7 +396,7 @@ export async function deleteSalaryRecord(id: string): Promise<ActionResult> {
     if (error) throw error;
 
     // Sync PF and NPS deductions to investments module
-    await syncSalaryDeductionsToInvestments(supabase, userId);
+    await syncSalaryDeductionsToInvestments(supabase, userId, oldPfSum, oldNpsSum);
 
     revalidatePath("/salary");
     revalidatePath("/income");
@@ -520,8 +579,25 @@ export async function getSalaryStats(): Promise<ActionResult<SalaryStats>> {
   }
 }
 
+// Helper to sum existing salary deductions
+async function getExistingDeductionsSum(supabase: any, userId: string) {
+  const { data: existingSalaries } = await supabase
+    .from("salary_records")
+    .select("pf_deduction, nps_deduction")
+    .eq("user_id", userId);
+  
+  const pf = (existingSalaries || []).reduce((acc: number, cur: any) => acc + Number(cur.pf_deduction || 0), 0);
+  const nps = (existingSalaries || []).reduce((acc: number, cur: any) => acc + Number(cur.nps_deduction || 0), 0);
+  return { pf, nps };
+}
+
 // ── Ledger sync to investments ──────────────────
-async function syncSalaryDeductionsToInvestments(supabase: any, userId: string): Promise<void> {
+async function syncSalaryDeductionsToInvestments(
+  supabase: any,
+  userId: string,
+  oldPfSum: number,
+  oldNpsSum: number
+): Promise<void> {
   const { data: records, error } = await supabase
     .from("salary_records")
     .select("month, pf_deduction, nps_deduction")
@@ -536,22 +612,15 @@ async function syncSalaryDeductionsToInvestments(supabase: any, userId: string):
     type: "ppf" | "nps",
     name: string,
     institution: string,
+    oldSum: number,
     getDeduction: (r: any) => number
   ) => {
-    let cumulativeSum = 0;
-    const historyPoints = validRecords.map((r: any) => {
-      cumulativeSum += getDeduction(r);
-      return {
-        month: r.month,
-        cumulativeValue: cumulativeSum,
-      };
-    });
-
-    if (cumulativeSum === 0) return;
+    const newSum = validRecords.reduce((acc: number, r: any) => acc + getDeduction(r), 0);
+    const diff = newSum - oldSum;
 
     let { data: asset, error: assetErr } = await supabase
       .from("investments")
-      .select("id")
+      .select("*")
       .eq("user_id", userId)
       .eq("type", type)
       .is("deleted_at", null)
@@ -561,6 +630,7 @@ async function syncSalaryDeductionsToInvestments(supabase: any, userId: string):
 
     let assetId = asset?.id;
     if (!assetId) {
+      if (newSum === 0) return;
       const { data: newAsset, error: createErr } = await supabase
         .from("investments")
         .insert({
@@ -568,9 +638,9 @@ async function syncSalaryDeductionsToInvestments(supabase: any, userId: string):
           name,
           type,
           institution,
-          invested_amount: cumulativeSum,
-          current_value: cumulativeSum,
-          start_date: historyPoints[0]?.month || new Date().toISOString().split("T")[0],
+          invested_amount: newSum,
+          current_value: newSum,
+          start_date: validRecords[0]?.month || new Date().toISOString().split("T")[0],
         })
         .select("id")
         .single();
@@ -578,32 +648,39 @@ async function syncSalaryDeductionsToInvestments(supabase: any, userId: string):
       if (createErr) throw createErr;
       assetId = newAsset.id;
     } else {
+      if (diff === 0) return;
+      const newInvested = Math.max(0, Number(asset.invested_amount) + diff);
+      const newCurrent = Math.max(0, Number(asset.current_value) + diff);
+      
       const { error: updateErr } = await supabase
         .from("investments")
         .update({
-          invested_amount: cumulativeSum,
-          current_value: cumulativeSum,
+          invested_amount: newInvested,
+          current_value: newCurrent,
         })
         .eq("id", assetId);
 
       if (updateErr) throw updateErr;
     }
 
-    for (const point of historyPoints) {
+    // Upsert valuation history points for all salary months
+    let runningSum = 0;
+    for (const r of validRecords) {
+      runningSum += getDeduction(r);
       await supabase
         .from("investment_valuations")
         .upsert({
           investment_id: assetId,
-          valuation_date: point.month,
-          value: point.cumulativeValue,
-          invested_amount: point.cumulativeValue,
+          valuation_date: r.month,
+          value: runningSum,
+          invested_amount: runningSum,
         }, {
           onConflict: "investment_id,valuation_date"
         });
     }
   };
 
-  await syncType("ppf", "Provident Fund (EPF)", "EPFO", (r) => Number(r.pf_deduction || 0));
-  await syncType("nps", "NPS Portfolio", "NPS Trust", (r) => Number(r.nps_deduction || 0));
+  await syncType("ppf", "Provident Fund (EPF)", "EPFO", oldPfSum, (r) => Number(r.pf_deduction || 0));
+  await syncType("nps", "NPS Portfolio", "NPS Trust", oldNpsSum, (r) => Number(r.nps_deduction || 0));
 }
 

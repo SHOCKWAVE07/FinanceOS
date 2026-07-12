@@ -11,9 +11,11 @@ import { createActionClient } from "@/lib/supabase/action-client";
 import {
   investmentSchema,
   valuationSchema,
+  adjustmentSchema,
   investmentFiltersSchema,
   type InvestmentFormValues,
   type ValuationFormValues,
+  type AdjustmentFormValues,
   type InvestmentFiltersFormValues,
 } from "@/lib/validations/investment.schemas";
 import type {
@@ -96,6 +98,20 @@ export async function createInvestment(
     const { supabase, userId } = await requireAuth();
     const parsed = investmentSchema.parse(raw);
 
+    let accountId = parsed.account_id;
+    if (!accountId) {
+      const { data: defaultAcc } = await supabase
+        .from("accounts")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      accountId = defaultAcc?.id || null;
+    }
+
     // Insert investment
     const { data: newInv, error: invErr } = await supabase
       .from("investments")
@@ -109,6 +125,7 @@ export async function createInvestment(
         quantity: parsed.quantity,
         avg_buy_price: parsed.avg_buy_price,
         currency: parsed.currency,
+        account_id: accountId,
         start_date: parsed.start_date,
         notes: parsed.notes || null,
       })
@@ -159,6 +176,20 @@ export async function updateInvestment(
 
     if (origErr || !orig) throw new Error("Investment not found");
 
+    let accountId = parsed.account_id;
+    if (!accountId) {
+      const { data: defaultAcc } = await supabase
+        .from("accounts")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      accountId = defaultAcc?.id || null;
+    }
+
     // Update investment
     const { error: invErr } = await supabase
       .from("investments")
@@ -171,6 +202,7 @@ export async function updateInvestment(
         quantity: parsed.quantity,
         avg_buy_price: parsed.avg_buy_price,
         currency: parsed.currency,
+        account_id: accountId,
         start_date: parsed.start_date,
         notes: parsed.notes || null,
       })
@@ -221,6 +253,155 @@ export async function deleteInvestment(id: string): Promise<ActionResult> {
 
     revalidatePath("/investments");
     revalidatePath("/dashboard");
+    return { ok: true, data: undefined };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+export async function adjustInvestmentPrincipal(
+  investmentId: string,
+  raw: AdjustmentFormValues
+): Promise<ActionResult> {
+  try {
+    const { supabase, userId } = await requireAuth();
+    const parsed = adjustmentSchema.parse(raw);
+
+    // 1. Fetch investment details
+    const { data: inv, error: invErr } = await supabase
+      .from("investments")
+      .select("*")
+      .eq("id", investmentId)
+      .eq("user_id", userId)
+      .single();
+
+    if (invErr || !inv) throw new Error("Investment not found");
+
+    const originalInvested = Number(inv.invested_amount);
+    const originalCurrent = Number(inv.current_value);
+
+    // Calculate new amounts
+    const diff = parsed.type === "add" ? parsed.amount : -parsed.amount;
+    const newInvested = originalInvested + diff;
+    const newCurrent = originalCurrent + diff;
+
+    if (newInvested < 0) {
+      throw new Error("Investment principal cannot be negative");
+    }
+
+    let accountId = parsed.account_id || inv.account_id;
+
+    // 2. Update investment in database
+    const { error: updateErr } = await supabase
+      .from("investments")
+      .update({
+        invested_amount: newInvested,
+        current_value: newCurrent,
+        account_id: accountId
+      })
+      .eq("id", investmentId);
+
+    if (updateErr) throw updateErr;
+
+    // Also add a valuation snapshot for history tracking
+    const { error: valErr } = await supabase
+      .from("investment_valuations")
+      .upsert(
+        {
+          investment_id: investmentId,
+          valuation_date: parsed.date,
+          value: newCurrent,
+          invested_amount: newInvested,
+        },
+        { onConflict: "investment_id,valuation_date" }
+      );
+
+    if (valErr) throw valErr;
+
+    // 3. Optional Ledger Sync (Create matching Expense or Income)
+    if (parsed.sync_ledger) {
+      let sourceName = "Bank Account";
+      if (accountId) {
+        const { data: accName } = await supabase
+          .from("accounts")
+          .select("name")
+          .eq("id", accountId)
+          .maybeSingle();
+        if (accName) sourceName = accName.name;
+      }
+
+      let categoryId: string | null = null;
+      const catSlug = "investments";
+      const catType = parsed.type === "add" ? "expense" : "income";
+      const catName = "Investments";
+      const catIcon = "TrendingUp";
+      const catColor = parsed.type === "add" ? "hsl(215, 60%, 50%)" : "hsl(142, 71%, 45%)";
+
+      const { data: cat } = await supabase
+        .from("categories")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("type", catType)
+        .eq("slug", catSlug)
+        .maybeSingle();
+
+      if (cat) {
+        categoryId = cat.id;
+      } else {
+        const { data: newCat, error: catErr } = await supabase
+          .from("categories")
+          .insert({
+            user_id: userId,
+            name: catName,
+            slug: catSlug,
+            type: catType,
+            icon: catIcon,
+            color: catColor,
+          })
+          .select("id")
+          .single();
+        if (!catErr && newCat) {
+          categoryId = newCat.id;
+        }
+      }
+
+      if (parsed.type === "add") {
+        // Create an Expense record representing the outflow
+        const { error: txErr } = await supabase
+          .from("expenses")
+          .insert({
+            user_id: userId,
+            title: `Investment - ${inv.name} (Capital Addition)`,
+            amount: parsed.amount,
+            date: parsed.date,
+            category_id: categoryId,
+            account_id: null, // Keep null to avoid double deduction
+            notes: `Automatically generated from investment principal addition to "${inv.name}". Source account: ${sourceName}.`,
+          });
+        if (txErr) console.error("Failed to auto-sync investment transaction to expenses:", txErr);
+      } else {
+        // Create an Income record representing the inflow
+        const { error: txErr } = await supabase
+          .from("incomes")
+          .insert({
+            user_id: userId,
+            title: `Investment Withdrawal - ${inv.name}`,
+            amount: parsed.amount,
+            date: parsed.date,
+            category_id: categoryId,
+            account_id: null, // Keep null to avoid double addition
+            source: inv.name,
+            notes: `Automatically generated from investment capital withdrawal from "${inv.name}". Destination account: ${sourceName}.`,
+            is_recurring: false,
+          });
+        if (txErr) console.error("Failed to auto-sync investment transaction to incomes:", txErr);
+      }
+    }
+
+    revalidatePath("/investments");
+    revalidatePath("/dashboard");
+    revalidatePath("/expenses");
+    revalidatePath("/income");
     return { ok: true, data: undefined };
   } catch (err) {
     return { ok: false, error: (err as Error).message };

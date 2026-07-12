@@ -45,16 +45,4 @@ export const goalFormSchema = z.object({
 
 export type GoalFormValues = z.infer<typeof goalFormSchema>;
 
-export const milestoneFormSchema = z.object({
-  name: z.string().min(1, "Milestone name is required"),
-  target_amount: z.number().min(0).optional().nullable(),
-  target_date: z.string().optional().nullable().refine((val) => {
-    if (!val) return true;
-    return !isNaN(Date.parse(val));
-  }, {
-    message: "Invalid target date",
-  }),
-  is_completed: z.boolean().default(false),
-});
 
-export type MilestoneFormValues = z.infer<typeof milestoneFormSchema>;

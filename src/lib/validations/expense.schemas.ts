@@ -144,7 +144,7 @@ export const expenseFiltersSchema = z.object({
   isRecurring: z.boolean().optional(),
   isReimbursable: z.boolean().optional(),
   page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  pageSize: z.coerce.number().int().min(1).max(100000).default(20),
   sortBy: z
     .enum(["date", "amount", "title", "created_at"])
     .default("date"),

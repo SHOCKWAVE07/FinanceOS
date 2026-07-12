@@ -17,6 +17,7 @@ interface InvestmentFiltersProps {
   type: string;
   onTypeChange: (val: string) => void;
   onClear: () => void;
+  categories?: any[];
 }
 
 export function InvestmentFilters({
@@ -25,6 +26,7 @@ export function InvestmentFilters({
   type,
   onTypeChange,
   onClear,
+  categories = [],
 }: InvestmentFiltersProps) {
   const hasFilters = search || (type && type !== "all");
 
@@ -49,15 +51,26 @@ export function InvestmentFilters({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Asset Classes</SelectItem>
-            <SelectItem value="mutual_fund">Mutual Funds</SelectItem>
-            <SelectItem value="stock">Equities/Stocks</SelectItem>
-            <SelectItem value="crypto">Crypto Assets</SelectItem>
-            <SelectItem value="gold">Gold</SelectItem>
-            <SelectItem value="fixed_deposit">Fixed Deposits</SelectItem>
-            <SelectItem value="ppf">PPF</SelectItem>
-            <SelectItem value="nps">NPS</SelectItem>
-            <SelectItem value="real_estate">Real Estate</SelectItem>
-            <SelectItem value="other">Others</SelectItem>
+            {categories.length > 0 ? (
+              categories.map((cat) => (
+                <SelectItem key={cat.slug} value={cat.slug}>
+                  <span className="mr-2">{cat.icon}</span>
+                  <span>{cat.name}</span>
+                </SelectItem>
+              ))
+            ) : (
+              <>
+                <SelectItem value="mutual_fund">Mutual Funds</SelectItem>
+                <SelectItem value="stock">Equities/Stocks</SelectItem>
+                <SelectItem value="crypto">Crypto Assets</SelectItem>
+                <SelectItem value="gold">Gold</SelectItem>
+                <SelectItem value="fixed_deposit">Fixed Deposits</SelectItem>
+                <SelectItem value="ppf">PPF</SelectItem>
+                <SelectItem value="nps">NPS</SelectItem>
+                <SelectItem value="real_estate">Real Estate</SelectItem>
+                <SelectItem value="other">Others</SelectItem>
+              </>
+            )}
           </SelectContent>
         </Select>
 

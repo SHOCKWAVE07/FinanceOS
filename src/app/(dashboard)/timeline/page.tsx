@@ -130,14 +130,14 @@ export default function TimelinePage() {
           icon: <Trophy className="h-4 w-4" />,
           colorClass: "text-amber-500 bg-amber-500/10 border-amber-500/20",
           dotClass: "bg-amber-500 ring-amber-500/20",
-          label: "Milestone Done",
+          label: "Goal Achieved",
         };
       case "milestone_pending":
         return {
           icon: <Target className="h-4 w-4" />,
           colorClass: "text-muted-foreground bg-muted/20 border-border",
           dotClass: "bg-muted-foreground ring-muted-foreground/20",
-          label: "Milestone Target",
+          label: "Goal Target",
         };
       default:
         return {
@@ -216,14 +216,23 @@ export default function TimelinePage() {
           <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mr-1.5 flex items-center gap-1">
             <SlidersHorizontal className="h-3 w-3" /> Filter Types:
           </span>
+          <Badge
+            variant={selectedTypes.length === 0 ? "default" : "outline"}
+            className={`cursor-pointer text-[10px] px-2.5 py-0.5 rounded-full select-none font-semibold transition-all ${
+              selectedTypes.length === 0 ? "bg-primary text-primary-foreground border-transparent" : "hover:bg-muted/40"
+            }`}
+            onClick={clearFilters}
+          >
+            All Events
+          </Badge>
           {[
             { key: "expense", label: "Expenses" },
             { key: "income", label: "Incomes" },
             { key: "salary", label: "Salary Records" },
             { key: "investment_purchase", label: "Asset Purchases" },
             { key: "note", label: "Notes" },
-            { key: "milestone_achieved", label: "Milestones Done" },
-            { key: "milestone_pending", label: "Milestones Target" },
+            { key: "milestone_achieved", label: "Goals Completed" },
+            { key: "milestone_pending", label: "Goals Target" },
           ].map((type) => {
             const isSelected = selectedTypes.includes(type.key);
             return (

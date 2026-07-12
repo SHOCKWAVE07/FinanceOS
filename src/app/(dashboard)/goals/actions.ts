@@ -6,19 +6,14 @@ import { requireAuth } from "@/app/(dashboard)/investments/actions"; // reuse re
 import {
   goalFormSchema,
   GoalFormValues,
-  milestoneFormSchema,
-  MilestoneFormValues,
 } from "@/lib/validations/goal.schemas";
 import { ActionResult } from "@/types";
-import { Goal, Milestone, Investment } from "@/types/database";
+import { Goal, Investment } from "@/types/database";
 
 export interface GoalWithStats extends Goal {
   total_saved: number;
   progress_percentage: number;
   linked_investments_count: number;
-  milestones_count: number;
-  completed_milestones_count: number;
-  milestones: Milestone[];
   linked_investments: Array<{
     id: string;
     name: string;
@@ -46,16 +41,7 @@ export async function getGoals(): Promise<ActionResult<GoalWithStats[]>> {
     const result: GoalWithStats[] = [];
 
     for (const goal of goals) {
-      // 2. Fetch milestones
-      const { data: milestones, error: milErr } = await supabase
-        .from("milestones")
-        .select("*")
-        .eq("goal_id", goal.id)
-        .order("created_at", { ascending: true });
-
-      if (milErr) throw milErr;
-
-      // 3. Fetch linked investments
+      // 2. Fetch linked investments
       const { data: links, error: linkErr } = await supabase
         .from("goal_investments")
         .select(`
@@ -96,17 +82,11 @@ export async function getGoals(): Promise<ActionResult<GoalWithStats[]>> {
       const targetAmount = Number(goal.target_amount);
       const progressPercentage = targetAmount > 0 ? Math.min(100, (totalSaved / targetAmount) * 100) : 0;
 
-      const milestonesList = milestones || [];
-      const completedMilestones = milestonesList.filter((m) => m.is_completed).length;
-
       result.push({
         ...goal,
         total_saved: totalSaved,
         progress_percentage: progressPercentage,
         linked_investments_count: linkedInvestments.length,
-        milestones_count: milestonesList.length,
-        completed_milestones_count: completedMilestones,
-        milestones: milestonesList,
         linked_investments: linkedInvestments,
       });
     }
@@ -248,124 +228,6 @@ export async function deleteGoal(id: string): Promise<ActionResult> {
   }
 }
 
-// ── Milestone Actions ──────────────────────────────
-
-export async function createMilestone(
-  goalId: string,
-  raw: MilestoneFormValues
-): Promise<ActionResult<{ id: string }>> {
-  try {
-    const { supabase } = await requireAuth();
-    const parsed = milestoneFormSchema.parse(raw);
-
-    const { data, error } = await supabase
-      .from("milestones")
-      .insert({
-        goal_id: goalId,
-        name: parsed.name,
-        target_amount: parsed.target_amount,
-        target_date: parsed.target_date,
-        is_completed: parsed.is_completed,
-        completed_at: parsed.is_completed ? new Date().toISOString() : null,
-      })
-      .select("id")
-      .single();
-
-    if (error) throw error;
-
-    revalidatePath("/goals");
-    return { ok: true, data: { id: data.id } };
-  } catch (err) {
-    return { ok: false, error: (err as Error).message };
-  }
-}
-
-export async function updateMilestone(
-  milestoneId: string,
-  raw: MilestoneFormValues
-): Promise<ActionResult> {
-  try {
-    const { supabase } = await requireAuth();
-    const parsed = milestoneFormSchema.parse(raw);
-
-    // Fetch existing milestone to check completion transition
-    const { data: existing, error: fetchErr } = await supabase
-      .from("milestones")
-      .select("is_completed, completed_at")
-      .eq("id", milestoneId)
-      .single();
-
-    if (fetchErr) throw fetchErr;
-
-    let completedAt = existing.completed_at;
-    if (parsed.is_completed && !existing.is_completed) {
-      completedAt = new Date().toISOString();
-    } else if (!parsed.is_completed) {
-      completedAt = null;
-    }
-
-    const { error } = await supabase
-      .from("milestones")
-      .update({
-        name: parsed.name,
-        target_amount: parsed.target_amount,
-        target_date: parsed.target_date,
-        is_completed: parsed.is_completed,
-        completed_at: completedAt,
-      })
-      .eq("id", milestoneId);
-
-    if (error) throw error;
-
-    revalidatePath("/goals");
-    return { ok: true, data: undefined };
-  } catch (err) {
-    return { ok: false, error: (err as Error).message };
-  }
-}
-
-export async function deleteMilestone(milestoneId: string): Promise<ActionResult> {
-  try {
-    const { supabase } = await requireAuth();
-
-    const { error } = await supabase
-      .from("milestones")
-      .delete()
-      .eq("id", milestoneId);
-
-    if (error) throw error;
-
-    revalidatePath("/goals");
-    return { ok: true, data: undefined };
-  } catch (err) {
-    return { ok: false, error: (err as Error).message };
-  }
-}
-
-export async function toggleMilestone(
-  milestoneId: string,
-  isCompleted: boolean
-): Promise<ActionResult> {
-  try {
-    const { supabase } = await requireAuth();
-
-    const { error } = await supabase
-      .from("milestones")
-      .update({
-        is_completed: isCompleted,
-        completed_at: isCompleted ? new Date().toISOString() : null,
-      })
-      .eq("id", milestoneId);
-
-    if (error) throw error;
-
-    revalidatePath("/goals");
-    return { ok: true, data: undefined };
-  } catch (err) {
-    return { ok: false, error: (err as Error).message };
-  }
-}
-
 // ── Goal Analytics Stats ───────────────────────────
 
 export interface GoalStats {
@@ -380,13 +242,6 @@ export interface GoalStats {
     count: number;
     target: number;
     saved: number;
-  }>;
-  upcomingMilestones: Array<{
-    goalId: string;
-    goalName: string;
-    milestoneId: string;
-    milestoneName: string;
-    targetDate: string;
   }>;
 }
 
@@ -424,27 +279,6 @@ export async function getGoalStats(): Promise<ActionResult<GoalStats>> {
       saved: info.saved,
     }));
 
-    // Upcoming milestones
-    const upcomingMilestones: GoalStats["upcomingMilestones"] = [];
-    for (const g of goals) {
-      for (const m of g.milestones) {
-        if (!m.is_completed && m.target_date) {
-          upcomingMilestones.push({
-            goalId: g.id,
-            goalName: g.name,
-            milestoneId: m.id,
-            milestoneName: m.name,
-            targetDate: m.target_date,
-          });
-        }
-      }
-    }
-
-    // Sort upcoming milestones by target date ascending
-    upcomingMilestones.sort(
-      (a, b) => new Date(a.targetDate).getTime() - new Date(b.targetDate).getTime()
-    );
-
     return {
       ok: true,
       data: {
@@ -455,7 +289,6 @@ export async function getGoalStats(): Promise<ActionResult<GoalStats>> {
         totalSavedAmount,
         overallProgressPercent,
         categoryDistribution,
-        upcomingMilestones: upcomingMilestones.slice(0, 5), // return top 5
       },
     };
   } catch (err) {

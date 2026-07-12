@@ -67,20 +67,7 @@ export const salaryRecordSchema = z
     // Optional flag to create an income transaction in the ledger automatically
     create_income_transaction: z.boolean().default(true),
     account_id: z.string().uuid("Please select a bank account to credit").nullable().optional(),
-  })
-  .refine(
-    (data) => {
-      // Ensure if create_income_transaction is true, account_id is provided
-      if (data.create_income_transaction) {
-        return !!data.account_id;
-      }
-      return true;
-    },
-    {
-      message: "Bank Account is required to record the ledger entry",
-      path: ["account_id"],
-    }
-  );
+  });
 
 export type SalaryRecordFormValues = z.infer<typeof salaryRecordSchema>;
 

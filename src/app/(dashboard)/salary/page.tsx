@@ -55,12 +55,12 @@ export default function SalaryPage() {
       
       const { data, error } = await supabase
         .from("salary_records")
-        .select("*")
+        .select("*, income:incomes(account_id)")
         .eq("user_id", user.id)
         .order("month", { ascending: false });
 
       if (error) throw error;
-      return data as SalaryRecord[];
+      return data as any[];
     },
   });
 

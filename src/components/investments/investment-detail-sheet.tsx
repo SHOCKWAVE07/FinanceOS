@@ -19,6 +19,60 @@ import { getValuationHistory } from "@/app/(dashboard)/investments/actions";
 import { formatCurrency } from "@/lib/utils";
 import type { Investment } from "@/types/database";
 
+function calculateXIRR(cashFlows: { date: Date; amount: number }[]): number | null {
+  if (cashFlows.length < 2) return null;
+
+  const d1 = cashFlows[0].date;
+  
+  const npv = (r: number) => {
+    return cashFlows.reduce((sum, cf) => {
+      const years = (cf.date.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24 * 365);
+      return sum + cf.amount / Math.pow(1 + r, years);
+    }, 0);
+  };
+
+  const npvDerivative = (r: number) => {
+    return cashFlows.reduce((sum, cf) => {
+      const years = (cf.date.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24 * 365);
+      if (years === 0) return sum;
+      return sum - (cf.amount * years) / Math.pow(1 + r, years + 1);
+    }, 0);
+  };
+
+  let r = 0.1;
+  const maxIterations = 100;
+  const tolerance = 1e-6;
+
+  for (let i = 0; i < maxIterations; i++) {
+    const val = npv(r);
+    const deriv = npvDerivative(r);
+    if (Math.abs(deriv) < 1e-12) break;
+    const nextR = r - val / deriv;
+    if (Math.abs(nextR - r) < tolerance) {
+      return nextR;
+    }
+    r = nextR;
+  }
+
+  // Fallback: Bisection search
+  let low = -0.999;
+  let high = 10.0;
+  for (let i = 0; i < 100; i++) {
+    const mid = (low + high) / 2;
+    const val = npv(mid);
+    if (Math.abs(val) < tolerance) {
+      return mid;
+    }
+    if (val > 0) {
+      low = mid;
+    } else {
+      high = mid;
+    }
+  }
+
+  return null;
+}
+
 interface InvestmentDetailSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -39,6 +93,76 @@ export function InvestmentDetailSheet({
 
   const history = historyResult?.ok ? historyResult.data : [];
   
+  // Calculate XIRR and Performance Stats
+  const performanceStats = React.useMemo(() => {
+    if (history.length === 0) return { invested: 0, current: 0, absolute: 0, pct: 0, xirr: null };
+
+    // Sort ascending by date
+    const sortedHistory = [...history].sort((a, b) => new Date(a.valuation_date).getTime() - new Date(b.valuation_date).getTime());
+    
+    const latest = sortedHistory[sortedHistory.length - 1];
+    const invested = Number(latest.invested_amount);
+    const current = Number(latest.value);
+    const absolute = current - invested;
+    const pct = invested > 0 ? (absolute / invested) * 100 : 0;
+
+    // Build cash flows for XIRR
+    const cashFlows: { date: Date; amount: number }[] = [];
+    
+    // 1. Initial invested amount
+    cashFlows.push({
+      date: new Date(sortedHistory[0].valuation_date),
+      amount: -Number(sortedHistory[0].invested_amount),
+    });
+
+    // 2. Incremental adjustments
+    for (let i = 1; i < sortedHistory.length; i++) {
+      const diff = Number(sortedHistory[i].invested_amount) - Number(sortedHistory[i-1].invested_amount);
+      if (diff !== 0) {
+        cashFlows.push({
+          date: new Date(sortedHistory[i].valuation_date),
+          amount: -diff,
+        });
+      }
+    }
+
+    // 3. Final current valuation (if it's not already added or to represent the closing value)
+    cashFlows.push({
+      date: new Date(latest.valuation_date),
+      amount: current,
+    });
+
+    // Clean up duplicate cash flows on the same date by summing them
+    const flowMap = new Map<string, number>();
+    for (const cf of cashFlows) {
+      const key = format(cf.date, "yyyy-MM-dd");
+      flowMap.set(key, (flowMap.get(key) || 0) + cf.amount);
+    }
+
+    const uniqueFlows = Array.from(flowMap.entries()).map(([dateStr, amt]) => ({
+      date: new Date(dateStr),
+      amount: amt,
+    })).sort((a, b) => a.date.getTime() - b.date.getTime());
+
+    // Compute XIRR
+    let xirrVal = null;
+    if (uniqueFlows.length >= 2 && absolute !== 0) {
+      const hasPositive = uniqueFlows.some(f => f.amount > 0);
+      const hasNegative = uniqueFlows.some(f => f.amount < 0);
+      if (hasPositive && hasNegative) {
+        xirrVal = calculateXIRR(uniqueFlows);
+      }
+    }
+
+    return {
+      invested,
+      current,
+      absolute,
+      pct,
+      xirr: xirrVal !== null ? xirrVal * 100 : null,
+    };
+  }, [history]);
+
   // Format chart data
   const chartData = history.map((val) => {
     const dateObj = new Date(val.valuation_date);
@@ -48,6 +172,71 @@ export function InvestmentDetailSheet({
       "Current Value": Number(val.value),
     };
   });
+
+  // Format transactions list
+  const transactions = React.useMemo(() => {
+    if (history.length === 0) return [];
+
+    const sorted = [...history].sort((a, b) => new Date(a.valuation_date).getTime() - new Date(b.valuation_date).getTime());
+    
+    const list: {
+      id: string;
+      date: string;
+      type: "initial" | "add" | "subtract" | "valuation";
+      amount: number;
+      resultingInvested: number;
+      resultingValue: number;
+    }[] = [];
+
+    // 1. Initial snapshot
+    list.push({
+      id: sorted[0].id,
+      date: sorted[0].valuation_date,
+      type: "initial",
+      amount: Number(sorted[0].invested_amount),
+      resultingInvested: Number(sorted[0].invested_amount),
+      resultingValue: Number(sorted[0].value),
+    });
+
+    // 2. Subsequent snapshots
+    for (let i = 1; i < sorted.length; i++) {
+      const prev = sorted[i - 1];
+      const curr = sorted[i];
+      const diffInvested = Number(curr.invested_amount) - Number(prev.invested_amount);
+      const diffValue = Number(curr.value) - Number(prev.value);
+
+      if (diffInvested > 0) {
+        list.push({
+          id: curr.id,
+          date: curr.valuation_date,
+          type: "add",
+          amount: diffInvested,
+          resultingInvested: Number(curr.invested_amount),
+          resultingValue: Number(curr.value),
+        });
+      } else if (diffInvested < 0) {
+        list.push({
+          id: curr.id,
+          date: curr.valuation_date,
+          type: "subtract",
+          amount: Math.abs(diffInvested),
+          resultingInvested: Number(curr.invested_amount),
+          resultingValue: Number(curr.value),
+        });
+      } else if (diffValue !== 0) {
+        list.push({
+          id: curr.id,
+          date: curr.valuation_date,
+          type: "valuation",
+          amount: diffValue,
+          resultingInvested: Number(curr.invested_amount),
+          resultingValue: Number(curr.value),
+        });
+      }
+    }
+
+    return list.reverse();
+  }, [history]);
 
   const TYPE_LABELS: Record<string, string> = {
     mutual_fund: "Mutual Fund",
@@ -92,6 +281,47 @@ export function InvestmentDetailSheet({
             </div>
           ) : (
             <>
+              {/* Performance Cards */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="rounded-xl border border-border bg-card p-4 space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Absolute Returns</span>
+                  <div className="flex items-baseline gap-2">
+                    <span className={`text-xl font-bold font-mono ${
+                      performanceStats.absolute >= 0 ? "text-emerald-500" : "text-destructive"
+                    }`}>
+                      {performanceStats.absolute >= 0 ? "+" : ""}{formatCurrency(performanceStats.absolute, "INR")}
+                    </span>
+                    <span className={`text-xs font-semibold font-mono ${
+                      performanceStats.absolute >= 0 ? "text-emerald-500" : "text-destructive"
+                    }`}>
+                      ({performanceStats.absolute >= 0 ? "+" : ""}{performanceStats.pct.toFixed(2)}%)
+                    </span>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-border bg-card p-4 space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                    XIRR (Annualized)
+                  </span>
+                  <div className="flex items-baseline gap-2">
+                    <span className={`text-xl font-bold font-mono ${
+                      performanceStats.xirr === null
+                        ? "text-muted-foreground"
+                        : performanceStats.xirr >= 0
+                        ? "text-emerald-500"
+                        : "text-destructive"
+                    }`}>
+                      {performanceStats.xirr === null 
+                        ? "0.00%" 
+                        : `${performanceStats.xirr >= 0 ? "+" : ""}${performanceStats.xirr.toFixed(2)}%`}
+                    </span>
+                    {performanceStats.xirr !== null && (
+                      <span className="text-[10px] text-muted-foreground">p.a.</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               {/* Line Chart */}
               {chartData.length > 0 && (
                 <div className="space-y-2">
@@ -122,55 +352,73 @@ export function InvestmentDetailSheet({
 
               {/* Valuation Timeline Table */}
               <div className="space-y-3">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Valuation History Log</h4>
+                <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Transaction & Activity Log</h4>
                 <div className="rounded-xl border border-border bg-card overflow-hidden">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Snapshot Date</TableHead>
-                        <TableHead className="text-right">Invested Capital</TableHead>
-                        <TableHead className="text-right">Asset Value</TableHead>
-                        <TableHead className="text-right">Gain / Loss</TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Activity</TableHead>
+                        <TableHead className="text-right">Amount Change</TableHead>
+                        <TableHead className="text-right">Total Invested</TableHead>
+                        <TableHead className="text-right">Current Value</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {history.length > 0 ? (
-                        [...history].reverse().map((record) => {
-                          const gain = Number(record.value) - Number(record.invested_amount);
-                          const gainPct = Number(record.invested_amount) > 0 ? (gain / Number(record.invested_amount)) * 100 : 0;
-                          const isProfit = gain >= 0;
+                      {transactions.length > 0 ? (
+                        transactions.map((tx) => {
+                          const typeLabels = {
+                            initial: "Initial Deposit",
+                            add: "Capital Addition",
+                            subtract: "Capital Withdrawal",
+                            valuation: "Valuation Update",
+                          };
+
+                          const typeColors = {
+                            initial: "text-muted-foreground",
+                            add: "text-emerald-500 font-semibold",
+                            subtract: "text-destructive font-semibold",
+                            valuation: "text-sky-500",
+                          };
+
+                          const prefix = tx.type === "add" || tx.type === "initial"
+                            ? "+"
+                            : tx.type === "subtract"
+                            ? "-"
+                            : tx.amount >= 0 ? "+" : "";
 
                           return (
-                            <TableRow key={record.id}>
+                            <TableRow key={tx.id}>
                               <TableCell className="font-mono text-xs text-muted-foreground">
-                                {format(new Date(record.valuation_date), "dd MMMM yyyy")}
+                                {format(new Date(tx.date), "dd MMM yyyy")}
                               </TableCell>
-                              <TableCell className="text-right font-mono text-xs">
-                                {formatCurrency(record.invested_amount, "INR")}
+                              <TableCell className="text-xs">
+                                <span className={`font-medium ${typeColors[tx.type]}`}>
+                                  {typeLabels[tx.type]}
+                                </span>
+                              </TableCell>
+                              <TableCell className={`text-right font-mono text-xs font-semibold ${
+                                tx.type === "add" || (tx.type === "valuation" && tx.amount >= 0)
+                                  ? "text-emerald-500" 
+                                  : tx.type === "subtract" || (tx.type === "valuation" && tx.amount < 0)
+                                  ? "text-destructive" 
+                                  : ""
+                              }`}>
+                                {prefix}{formatCurrency(tx.amount, "INR")}
+                              </TableCell>
+                              <TableCell className="text-right font-mono text-xs text-muted-foreground">
+                                {formatCurrency(tx.resultingInvested, "INR")}
                               </TableCell>
                               <TableCell className="text-right font-mono text-xs font-semibold">
-                                {formatCurrency(record.value, "INR")}
-                              </TableCell>
-                              <TableCell className="text-right font-mono">
-                                <div className={`flex flex-col items-end text-xs font-semibold ${
-                                  isProfit ? "text-emerald-500" : "text-destructive"
-                                }`}>
-                                  <span className="flex items-center gap-0.5">
-                                    {isProfit ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
-                                    {isProfit ? "+" : ""}{formatCurrency(gain, "INR")}
-                                  </span>
-                                  <span className="text-[10px] opacity-80">
-                                    {isProfit ? "+" : ""}{gainPct.toFixed(1)}%
-                                  </span>
-                                </div>
+                                {formatCurrency(tx.resultingValue, "INR")}
                               </TableCell>
                             </TableRow>
                           );
                         })
                       ) : (
                         <TableRow>
-                          <TableCell colSpan={4} className="h-20 text-center text-xs text-muted-foreground">
-                            No historical snapshots logged.
+                          <TableCell colSpan={5} className="h-20 text-center text-xs text-muted-foreground">
+                            No transaction history.
                           </TableCell>
                         </TableRow>
                       )}
